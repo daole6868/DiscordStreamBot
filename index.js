@@ -87,10 +87,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       arr.push(now); recentToggles.set(user.id, arr);
       if (arr.length >= 3) {
         const adm = await client.channels.fetch(process.env.ADMIN_CHANNEL_ID).catch(() => null);
-        if (adm) adm.send({ embeds: [new EmbedBuilder().setTitle('⚠️ CẢNH BÁO SPAM').setDescription(`<@${user.id}> bật/tắt stream **${arr.length} lần/5p**`).setColor('Orange')] });
+        if (adm) adm.send({ embeds: [new EmbedBuilder().setTitle('⚠️ CẢNH BÁO SPAM').setDescription(`- **Người Dùng : **<@${user.id}> bật/tắt stream **${arr.length} lần/5p**`).setColor('Orange')] });
       }
       const logCh = await client.channels.fetch(process.env.LOG_CHANNEL_ID).catch(() => null);
-      if (logCh) logCh.send({ embeds: [new EmbedBuilder().setTitle('🟢 BẮT ĐẦU STREAM').setDescription(`👤 <@${user.id}>\n🎮 Kênh: ${newState.channel?.name}\n🕒 Bắt đầu: ${discordTS(now)}`).setColor('Green')] });
+      if (logCh) logCh.send({ embeds: [new EmbedBuilder().setTitle('🟢 **BẮT ĐẦU STREAM**').setDescription(`- **Người Dùng :** <@${user.id}>\n- **Kênh :** ${newState.channel?.name}\n**- Thời Gian Bắt đầu :** ${discordTS(now)}`).setColor('Green')] });
     }
 
     if (wasStreaming && (!isStreaming || !newState.channelId)) {
@@ -105,11 +105,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const totalToday = todayData.reduce((acc, s) => acc + (s.duration || 0), 0);
 
       const logCh = await client.channels.fetch(process.env.LOG_CHANNEL_ID).catch(() => null);
-      if (logCh) logCh.send({ embeds: [new EmbedBuilder().setTitle('🔴 KẾT THÚC STREAM').setDescription(`👤 <@${user.id}>\n⏱️ Phiên này: \`${formatDuration(durSec)}\`\n📊 **Tổng hôm nay:** \`${formatDuration(totalToday)}\``).setColor('Red')] });
+      if (logCh) logCh.send({ embeds: [new EmbedBuilder().setTitle('🔴 **KẾT THÚC STREAM**').setDescription(`- **Người Dùng :** <@${user.id}>\n- **Phiên này :** \`${formatDuration(durSec)}\`\n- **Tổng hôm nay:** \`${formatDuration(totalToday)}\``).setColor('Red')] });
 
       if (durSec < 300) {
         const adm = await client.channels.fetch(process.env.ADMIN_CHANNEL_ID).catch(() => null);
-        if (adm) adm.send({ embeds: [new EmbedBuilder().setTitle('⚠️ STREAM NGẮN').setDescription(`<@${user.id}> stream chỉ \`${formatDuration(durSec)}\``).setColor('Orange')] });
+        if (adm) adm.send({ embeds: [new EmbedBuilder().setTitle('⚠️ **STREAM NGẮN**').setDescription(`- **Người Dùng :** <@${user.id}> stream chỉ \`${formatDuration(durSec)}\``).setColor('Orange')] });
       }
     }
   } catch (err) { console.error('❌ Voice Error:', err); }
@@ -171,7 +171,7 @@ client.on('messageCreate', async msg => {
       if (!ss.length) continue;
       found = true;
       const total = ss.reduce((a, s) => a + (s.duration || calcSec(s.start, s.end || new Date())), 0);
-      const e = new EmbedBuilder().setTitle(`📅 Ngày ${d.toLocaleDateString('vi-VN')}`).setColor('Blue').setDescription(`Người dùng: <@${target.id}>\nTổng: **${formatDuration(total)}**`)
+      const e = new EmbedBuilder().setTitle(`📅 **Ngày :** ${d.toLocaleDateString('vi-VN')}`).setColor('Blue').setDescription(`- **Người dùng :** <@${target.id}>\n- **Tổng :** **${formatDuration(total)}**`)
         .addFields(ss.map((s, idx) => ({
           name: `Phiên #${idx + 1}`,
           value: `🟩 ${discordTS(s.start)} - 🔴 ${s.end ? discordTS(s.end) : 'Đang chạy'}\n⏱️ ${formatDuration(s.duration || calcSec(s.start, new Date()))}`
@@ -211,7 +211,23 @@ client.on('messageCreate', async msg => {
     return sendLeaderboard(msg.channel, totals, `LỊCH SỬ ${type.toUpperCase()}`, tag);
   }
 });
+// ====== KHỞI CHẠY WEB SERVER & BOT ======
+const app = express();
 
-const app = express(); app.get('/', (req, res) => res.send('Bot is Online')); app.listen(PORT);
-client.once('ready', () => console.log(`🚀 Bot đã sẵn sàng: ${client.user.tag}`));
+// Trang chủ để Cron-job.org kiểm tra
+app.get('/', (req, res) => {
+  res.send('Bot is Online and Staying Alive!');
+});
+
+// Lắng nghe cổng từ Render
+app.listen(PORT, () => {
+  console.log(`🌐 Web server đang chạy tại cổng: ${PORT}`);
+});
+
+// Sự kiện khi Bot sẵn sàng
+client.once('ready', () => {
+  console.log(`🚀 Bot đã sẵn sàng: ${client.user.tag}`);
+});
+
+// Đăng nhập Bot
 client.login(process.env.DISCORD_TOKEN);
