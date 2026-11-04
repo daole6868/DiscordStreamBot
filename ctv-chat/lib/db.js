@@ -173,6 +173,8 @@ const MIGRATIONS = [
       if (icon || text !== r.text) store.run('UPDATE messages SET icon = ?, text = ?, fold = ? WHERE id = ?', icon, text, fold(text), r.id);
     }
   },
+  // 10: app Android (Firebase) — mỗi máy nhận thông báo là "web" (trình duyệt) hoặc "fcm" (app Android, endpoint = "fcm:" + mã máy)
+  `ALTER TABLE push_subs ADD COLUMN kind TEXT NOT NULL DEFAULT 'web';`,
 ];
 
 class Store {

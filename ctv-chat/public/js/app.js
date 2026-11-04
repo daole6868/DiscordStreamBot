@@ -124,8 +124,8 @@
     users: {}, convs: [], activeId: null,
     msgs: {}, more: {}, orders: {}, loadingMsgs: false,
     view: 'chat', pending: 0, mobileChat: false, info: innerWidth > 1280, convQ: '', search: null, push: '', mentioned: {}, banner: null,
-    canInstall: false, installed: (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true,
-    isAndroid: /Android/i.test(navigator.userAgent),
+    canInstall: false, installed: !!window.CTVNative || (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true,
+    isAndroid: /Android/i.test(navigator.userAgent), native: !!window.CTVNative, apk: '', natTick: 0,
     modal: null, lightbox: null, toasts: [], busy: '', connected: true,
     theme: lsGet('ctv.theme') || 'auto', sound: lsGet('ctv.sound') !== '0',
     notif: typeof Notification !== 'undefined' && Notification.permission === 'granted',
@@ -182,6 +182,7 @@
   /** Sao chép chữ — có cách dự phòng khi mở app qua địa chỉ mạng LAN (http://192.168…). */
   function copyText(t) {
     const done = () => toast('Đã sao chép');
+    if (window.CTVNative) { try { window.CTVNative.copy(String(t)); done(); return; } catch {} }
     if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(t).then(done, () => fallback()); return; }
     fallback();
     function fallback() {
@@ -284,8 +285,70 @@
     const r = await installEvt.userChoice.catch(() => null);
     if (r && r.outcome === 'accepted') S.canInstall = false;
   }
+  // ---------------------------------------------------------------- app Android thật (CTV Chat cài từ file APK): thông báo qua Firebase
+  const NATIVE = window.CTVNative || null;
+  let tokWait = null, permWait = null;
+  // app gọi lại: mã thiết bị Firebase (khi được hỏi, hoặc khi Firebase tự đổi mã)
+  window.ctvNativeToken = (tok, err) => {
+    if (tokWait) { const w = tokWait; tokWait = null; w(tok, err); return; }
+    if (tok && S.push === 'on') api('POST', '/api/push/native', { token: tok }).then(() => lsSet('ctv.fcmToken', tok)).catch(() => {});
+  };
+  window.ctvNativePerm = (p) => { if (permWait) { const w = permWait; permWait = null; w(p); } };
+  // bấm vào thông báo khi app đang mở → nhảy tới đoạn chat đó
+  window.ctvNativeOpen = (url) => openFromNotif(url);
+  function openFromNotif(url) {
+    const m = /#\/chat\/(\d+)/.exec(url || '');
+    if (m && S.phase === 'app') openConv(Number(m[1]));
+    else if (/#\//.test(url || '')) { location.hash = url.slice(url.indexOf('#')); readHash(); }
+  }
+  const nativeToken = () => new Promise((res, rej) => {
+    const t = setTimeout(() => { tokWait = null; rej(new Error('Firebase không trả lời — kiểm tra mạng rồi thử lại')); }, 25000);
+    tokWait = (tok, err) => { clearTimeout(t); if (tok) res(tok); else rej(new Error(err || 'Không lấy được mã thiết bị')); };
+    NATIVE.getToken();
+  });
+  const nativePerm = () => new Promise((res) => { permWait = res; NATIVE.requestPermission(); setTimeout(() => { if (permWait === res) { permWait = null; res(NATIVE.permission()); } }, 60000); });
+  async function nativeSubscribe() {
+    const token = await nativeToken();
+    await api('POST', '/api/push/native', { token });
+    lsSet('ctv.fcmToken', token);
+    try { NATIVE.setPushOn(true); } catch {}
+    S.push = 'on';
+  }
+  async function nativePushInit() {
+    try {
+      const cfg = await api('GET', '/api/app/config');
+      if (!cfg.fcm) { S.push = 'nofcm'; return; }
+      const r = NATIVE.setup(JSON.stringify(cfg.fcm));
+      if (r === 'restart') { S.push = 'restart'; return; }
+      if (r !== 'ok') { console.warn('[firebase]', r); S.push = 'nativeerr'; return; }
+      const p = NATIVE.permission();
+      if (p === 'granted' && lsGet('ctv.pushOff') !== '1') await nativeSubscribe();
+      else if (p === 'default' && lsGet('ctv.pushAsked') !== '1') { lsSet('ctv.pushAsked', '1'); S.push = 'off'; await enablePush(); }
+      else S.push = p === 'denied' ? 'denied' : 'off';
+    } catch (e) { console.warn('[thông báo app]', e); S.push = 'nativeerr'; }
+  }
+  async function nativeEnable() {
+    if (S.push === 'nofcm' || S.push === 'restart' || S.push === '') { go('account'); return; }
+    lsSet('ctv.pushOff', '');
+    const p = await nativePerm();
+    if (p !== 'granted') { S.push = 'denied'; toast('Bạn chưa cho phép CTV Chat gửi thông báo', 'warn'); return; }
+    try {
+      await nativeSubscribe();
+      toast('Đã bật thông báo trên máy này', 'ok', 3000, 'bell');
+    } catch (e) { S.push = 'nativeerr'; toast('Không bật được thông báo: ' + e.message, 'err'); }
+  }
+  async function nativeDisable(quiet) {
+    const tok = lsGet('ctv.fcmToken');
+    if (tok) await api('POST', '/api/push/unsubscribe', { endpoint: 'fcm:' + tok }).catch(() => {});
+    try { NATIVE.setPushOn(false); } catch {}
+    if (quiet !== true) lsSet('ctv.pushOff', '1');
+    if (S.push === 'on') S.push = 'off';
+    if (quiet !== true) toast('Đã tắt thông báo trên máy này');
+  }
   const b64uBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
   async function pushInit() {
+    if (NATIVE) return nativePushInit();
+    if (S.isAndroid) api('GET', '/api/app/config').then((c) => { S.apk = c.apk || ''; }).catch(() => {});
     if (!('serviceWorker' in navigator) || !window.isSecureContext) { S.push = window.isSecureContext ? 'unsupported' : 'insecure'; return; }
     try {
       navigator.serviceWorker.addEventListener('message', (e) => {
@@ -311,6 +374,7 @@
     S.push = 'on';
   }
   async function enablePush() {
+    if (NATIVE) return nativeEnable();
     if (['insecure', 'unsupported', 'ios', ''].includes(S.push)) { go('account'); return; }
     try {
       const p = await Notification.requestPermission();
@@ -322,6 +386,7 @@
     } catch (e) { toast('Không bật được thông báo: ' + e.message, 'err'); }
   }
   async function disablePush(quiet) {
+    if (NATIVE) return nativeDisable(quiet);
     try {
       const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
       const sub = reg && (await reg.pushManager.getSubscription());
@@ -520,6 +585,7 @@
 
   async function openConv(id) {
     delete S.mentioned[id];
+    if (NATIVE) try { NATIVE.clearNotif('conv-' + id); } catch {}
     const oc = convById(id);
     if (oc) oc.mention = false;
     S.view = 'chat';
@@ -557,7 +623,16 @@
   // ---------------------------------------------------------------- báo cho máy chủ biết mình đang dùng app (để khỏi gửi thông báo trùng)
   const CID = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
   let lastInput = Date.now(), sentActive = null, sentAt = 0;
-  const isUsing = () => !document.hidden && document.hasFocus() && Date.now() - lastInput < 120e3;
+  let nativeVisible = true;
+  const isUsing = () => (NATIVE ? nativeVisible && !document.hidden : !document.hidden && document.hasFocus()) && Date.now() - lastInput < 120e3;
+  // app Android báo app vừa hiện lên / bị ẩn xuống nền
+  window.ctvNativeVisible = (v) => {
+    nativeVisible = !!v;
+    if (v) S.natTick++;
+    if (v && S.push === 'denied' && NATIVE.permission() === 'granted') nativeEnable(); // vừa bật thông báo trong Cài đặt của máy
+    if (v) { lastInput = Date.now(); if (S.phase === 'app' && S.activeId && S.view === 'chat') { try { NATIVE.clearNotif('conv-' + S.activeId); } catch {} markRead(); } }
+    reportActive(true);
+  };
   function reportActive(force) {
     if (S.phase !== 'app') return;
     const on = isUsing();
@@ -1154,7 +1229,7 @@
   // ================================================================ trang: Cài đặt (admin)
   const SettingsView = {
     template: '#tpl-settings',
-    data: () => ({ s: null, backups: [], saving: false, pv: null, pvErr: '' }),
+    data: () => ({ s: null, backups: [], saving: false, pv: null, pvErr: '', fcmBusy: false }),
     computed: {
       purgeOn() { const p = this.s && this.s.purge; return !!p && (p.img.on || p.cred.on || p.order.on); },
     },
@@ -1163,7 +1238,7 @@
     },
     created() { this.load(); },
     methods: {
-      fmtDT, fmtSize, agoText, purgeText,
+      fmtDT, fmtSize, agoText, purgeText, copy: copyText,
       async load() {
         try {
           this.s = await api('GET', '/api/settings');
@@ -1191,6 +1266,22 @@
         if (!ok) return;
         S.busy = 'Đang dọn dữ liệu cũ…';
         try { const r = await tryApi('POST', '/api/purge/run'); toast('Đã xoá ' + purgeText(r)); await this.load(); } finally { S.busy = ''; }
+      },
+      // app Android: tải lên 2 file của Firebase
+      async fcmFile(kind, e) {
+        const f = e.target.files[0]; e.target.value = '';
+        if (!f) return;
+        if (f.size > 100e3) return toast('File quá lớn — hãy chọn đúng file .json tải từ Firebase', 'err');
+        this.fcmBusy = true;
+        try {
+          this.s.fcm = await tryApi('POST', '/api/settings/fcm', { [kind]: await f.text() });
+          toast(this.s.fcm.ready ? 'Đã cài xong Firebase — app Android nhận được thông báo' : kind === 'client' ? 'Đã lưu google-services.json — còn file khoá' : 'Đã lưu file khoá — còn file google-services.json', 'ok', 5000, 'check');
+        } finally { this.fcmBusy = false; }
+      },
+      async fcmClear() {
+        if (!(await confirmBox({ title: 'Gỡ cấu hình Firebase?', text: 'App Android sẽ không nhận được thông báo cho tới khi bạn tải lại 2 file.', ok: 'Gỡ', danger: true }))) return;
+        this.s.fcm = await tryApi('POST', '/api/settings/fcm', { clear: true });
+        toast('Đã gỡ cấu hình Firebase');
       },
       async backupNow() {
         S.busy = 'Đang sao lưu…';
@@ -1279,6 +1370,11 @@
     created() { const m = S.me, b = m.bank || {}; this.f = { name: m.name, color: m.color, phone: m.phone || '', bankBin: b.bin || '', bankAcc: b.account || '', bankHolder: b.holder || '' }; },
     computed: {
       me: () => S.me, notifSupported: () => typeof Notification !== 'undefined', admin: isAdmin, origin: () => location.origin,
+      // app Android: đã cho chạy nền (bỏ tối ưu pin) chưa, hãng máy
+      battery() { S.natTick; try { return NATIVE ? NATIVE.batteryOk() : true; } catch { return true; } },
+      brand() { try { return NATIVE ? String(NATIVE.brand() || '') : ''; } catch { return ''; } },
+      colorOS() { return /oppo|realme|oneplus/i.test(this.brand); },
+      appVer() { try { return NATIVE ? NATIVE.version() : ''; } catch { return ''; } },
       bankName() { const b = S.banks.find((x) => x.bin === this.f.bankBin); return b ? b.short : ''; },
     },
     methods: {
@@ -1316,6 +1412,7 @@
         if (!S.notif) toast('Trình duyệt chưa cho phép thông báo', 'warn');
       },
       enablePush, disablePush, installApp,
+      nat(fn) { try { NATIVE[fn](); } catch {} },
       async testPush() {
         this.pushTest = null;
         const r = await tryApi('POST', '/api/push/test');
@@ -1325,6 +1422,10 @@
       },
       pushErr(x) {
         if (x.status >= 200 && x.status < 300) return 'đã gửi';
+        if (/^App Android/.test(x.device)) {
+          if (x.status === 403 || /MISMATCH/.test(x.error || '')) return 'app trên máy đó dùng cấu hình Firebase cũ — đóng hẳn app rồi mở lại';
+          return x.error || 'lỗi ' + x.status;
+        }
         if (!x.status) return 'máy chủ không kết nối được dịch vụ thông báo (VPS chặn mạng ra ngoài?)' + (x.error ? ` — ${x.error}` : '');
         if (x.status === 401 || x.status === 403) return 'khoá thông báo không khớp — bấm Tắt rồi Bật lại trên máy đó';
         if (x.status === 404 || x.status === 410) return 'đăng ký đã hết hạn — bật lại thông báo trên máy đó';
@@ -1463,6 +1564,21 @@
         if (S.lightbox && e.key === 'ArrowRight') this.lb(1);
         if (S.lightbox && e.key === 'ArrowLeft') this.lb(-1);
       });
+      // nút Quay lại của điện thoại (app Android): đóng thứ đang mở trước, hết thì app tự xuống nền
+      window.ctvNativeBack = () => {
+        if (S.lightbox) S.lightbox = null;
+        else if (S.modal) closeModal(false);
+        else if (S.search) S.search = null;
+        else if (this.menu) this.menu = null;
+        else if (this.mention) this.mention = null;
+        else if (this.more) this.more = false;
+        else if (S.info && innerWidth <= 1180 && S.view === 'chat' && S.activeId) S.info = false;
+        else if (this.reply) this.reply = null;
+        else if (S.view === 'chat' && S.mobileChat && innerWidth <= 760) S.mobileChat = false;
+        else if (S.view !== 'chat') go('chat');
+        else return false;
+        return true;
+      };
       window.addEventListener('focus', markRead);
     },
     methods: {

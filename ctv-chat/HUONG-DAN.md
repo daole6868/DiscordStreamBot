@@ -112,11 +112,32 @@ Dữ liệu nằm riêng ở `/var/lib/ctv-chat` nên **không bị mất** khi 
 - **Cổng 3000 đã có chương trình khác dùng:** chạy `sudo PORT=3005 bash deploy/cai-dat-vps.sh chat.tenmien.com`.
 - Trên VPS, app chỉ nhận kết nối qua `https://chat.tenmien.com`. Không vào thẳng bằng IP:3000 được, như vậy an toàn hơn.
 
+### App Android thật (khuyên dùng cho điện thoại Android)
+
+App **CTV Chat** cài từ file APK: chạy riêng, không cần Chrome. Thông báo vẫn đến khi đã **vuốt tắt app** (qua Firebase của Google, giống Zalo / Messenger).
+
+**Admin làm 1 lần (khoảng 10 phút, trên máy tính):** vào **Cài đặt → App Android & thông báo** và làm theo hướng dẫn có sẵn trong đó:
+1. Vào [console.firebase.google.com](https://console.firebase.google.com) → **Tạo dự án** (miễn phí).
+2. **Thêm ứng dụng Android** với tên gói `shop.gachaz.ctvchat` → tải **google-services.json** → tải lên ô 1.
+3. **⚙ Cài đặt dự án → Tài khoản dịch vụ → Tạo khoá riêng tư mới** → tải file .json đó lên ô 2. File này là **bí mật** và không nằm trong file xuất dữ liệu JSON.
+
+**Mỗi người (CTV, admin):**
+1. Trên điện thoại Android mở link tải app: <https://github.com/daole6868/DiscordStreamBot/releases/latest/download/CTV-Chat.apk>. Link này cũng có trong app (Tài khoản, Cài đặt, thanh xanh ở danh sách chat khi mở bằng Chrome Android).
+2. Mở file vừa tải → **Cài đặt**. Nếu máy hỏi, cho phép **cài ứng dụng không rõ nguồn gốc**.
+3. Mở **CTV Chat** → đăng nhập → bấm **Cho phép** thông báo.
+4. Vào **Tài khoản → Thông báo trên điện thoại**: bấm **Cho chạy nền** và **Tự khởi động**. Máy Oppo / Realme / OnePlus cần thêm bước: Cài đặt → Ứng dụng → CTV Chat → **Sử dụng pin** → bật **Cho phép hoạt động nền** và **Cho phép tự khởi chạy**.
+5. Bấm **Gửi thử**, thoát app, rồi nhờ người khác nhắn thử.
+- Biểu tượng CTV Chat cũ (của Chrome) có thể xoá. Cài app xong, máy chủ tự ngừng gửi thông báo qua Chrome cho điện thoại đó để khỏi báo 2 lần.
+- **Cập nhật:** giao diện và tính năng cập nhật theo máy chủ (`sudo ctv-chat cap-nhat`), **không cần cài lại app**. Chỉ khi phần app Android (`android/`) thay đổi thì GitHub mới đóng gói bản APK mới. Khi đó tải lại từ cùng link và cài đè lên, không mất đăng nhập.
+- **Khoá ký app** (để bản mới cài đè được lên bản cũ) không nằm trong kho code. Chủ kho thêm 2 secret trong GitHub: **Settings → Secrets and variables → Actions → New repository secret**: `CTV_KEYSTORE_B64` (file khoá .p12 mã hoá base64) và `CTV_KEYSTORE_PASSWORD`. Chưa có 2 secret này thì mỗi bản APK ký bằng khoá tạm, nên muốn lên bản mới phải gỡ app cũ trước.
+- Lần đầu mở, app vào `https://ctv.gachaz.shop`. Nếu không kết nối được, app hiện nút **Đổi địa chỉ máy chủ**.
+- **iPhone:** chưa có app riêng (cần tài khoản nhà phát triển Apple). Vẫn dùng Safari → **Thêm vào MH chính** như dưới đây.
+
 ### Thông báo trên điện thoại (như Zalo / Messenger)
 
 1. Mở app bằng địa chỉ **https://** (mục 1b hoặc 1c).
+   - **Android:** dùng **app Android** ở mục trên (khuyên dùng). Trên Chrome vẫn bật được, nhưng nhiều máy tắt Chrome khi vuốt đóng nên dễ mất thông báo.
    - **iPhone:** bấm nút **Chia sẻ ⬆ → Thêm vào MH chính**, rồi mở app từ biểu tượng đó (cần iOS 16.4 trở lên). Safari thường không hiện thông báo được.
-   - **Android:** dùng Chrome, nên “Thêm vào màn hình chính” cho giống app.
 2. Bấm **Bật** trên thanh xanh ở danh sách chat (hoặc **Tài khoản → Thông báo trên điện thoại → Bật**), rồi chọn **Cho phép**. Bấm **Gửi thử** để kiểm tra.
 3. Mỗi máy bật một lần. Một người có thể bật trên nhiều máy (điện thoại + máy tính). Đăng xuất là tắt thông báo trên máy đó.
 
@@ -331,6 +352,8 @@ ctv-chat/
 ├── lib/banks.js         ← danh sách ngân hàng hỗ trợ VietQR (mã BIN)
 ├── lib/vietqr.js        ← tạo nội dung mã QR chuyển khoản (chuẩn VietQR/EMVCo)
 ├── lib/webpush.js       ← gửi thông báo đẩy (Web Push, RFC 8291/8292) — không dùng thư viện ngoài
+├── lib/fcm.js           ← gửi thông báo tới app Android qua Firebase (FCM HTTP v1) — không dùng thư viện ngoài
+├── android/             ← app Android (Kotlin): WebView riêng + nhận thông báo Firebase. GitHub Actions tự đóng gói APK
 ├── lib/fold.js          ← bỏ dấu tiếng Việt để tìm kiếm
 ├── public/sw.js         ← service worker: nhận thông báo đẩy, mở đúng đoạn chat khi bấm
 ├── integrations/        ← nơi gắn Discord, Google Sheets sau này

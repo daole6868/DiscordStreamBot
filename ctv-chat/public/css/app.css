@@ -608,7 +608,17 @@ mark { background: #ffe58a; color: inherit; border-radius: 3px; padding: 0 1px; 
 .push-test .ic { vertical-align: -2px; margin-right: 5px; }
 .push-help { margin-top: 10px; font-size: 13px; color: var(--tx2); }
 .push-help summary { cursor: pointer; font-weight: 600; color: var(--ac-tx); }
-.push-help ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.45; }
+.push-help ul, .push-help ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.45; }
+.push-box + .push-box { margin-top: 10px; }
+.fcm-files { display: grid; gap: 8px; margin-top: 12px; }
+.fcm-f { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; cursor: pointer; color: var(--tx2); }
+.fcm-f .grow { display: grid; gap: 1px; }
+.fcm-f b { color: var(--tx); font-size: 14px; }
+.fcm-f small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fcm-f.done { border-style: solid; border-color: transparent; background: var(--ok-soft); color: var(--ok-tx); }
+.fcm-f.busy { opacity: .6; pointer-events: none; }
+.fcm-pkg { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+.fcm-pkg code { font-size: 13px; padding: 3px 8px; border-radius: 6px; background: var(--bg-soft); color: var(--tx); user-select: all; }
 
 /* thông báo đẩy */
 .push-banner { margin: 0 12px 8px; display: flex; align-items: center; gap: 8px; padding: 8px 6px 8px 12px; border-radius: 10px; background: var(--ac-soft); color: var(--ac-tx); }

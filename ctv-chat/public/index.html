@@ -99,7 +99,13 @@
           </div>
         </header>
         <button class="search search-btn" @click="openSearch()"><ic n="search" s="16"></ic><span>Tìm tin nhắn, đơn, tài khoản…</span></button>
-        <div v-if="S.canInstall && !S.installed && !pushHide" class="push-banner">
+        <div v-if="S.isAndroid && !S.native && S.apk && !pushHide" class="push-banner">
+          <ic n="download" s="18"></ic>
+          <span>Có <b>app CTV Chat cho Android</b> — thông báo như Zalo / Messenger, kể cả khi đã đóng app</span>
+          <a class="btn sm primary" :href="S.apk">Tải app</a>
+          <button class="ibtn sm" title="Ẩn" @click="hidePush"><ic n="x" s="14"></ic></button>
+        </div>
+        <div v-else-if="S.canInstall && !S.installed && !S.isAndroid && !pushHide" class="push-banner">
           <ic n="download" s="18"></ic>
           <span>Cài CTV Chat thành <b>ứng dụng</b> trên máy để nhận thông báo như Zalo / Messenger</span>
           <button class="btn sm primary" @click="installApp">Cài đặt</button>
@@ -949,6 +955,48 @@
       <p class="muted small">Nhắn riêng: chỉ admin nhắn riêng được với từng thành viên (mỗi CTV có sẵn một đoạn chat riêng với admin để nhận đơn). Thành viên không nhắn riêng được với nhau, chỉ nhắn với admin hoặc trong nhóm.</p>
     </div>
 
+    <div class="card" id="app-android">
+      <div class="card-h"><b>App Android & thông báo</b><small>App CTV Chat cho Android nhận thông báo kể cả khi đã vuốt tắt app. Cần cài Firebase của Google (miễn phí) một lần.</small></div>
+      <div class="push-box" :class="s.fcm.ready ? 'p-on' : s.fcm.mismatch ? 'p-denied' : 'p-off'">
+        <ic :n="s.fcm.ready ? 'check' : 'info'" s="20"></ic>
+        <div class="grow">
+          <b v-if="s.fcm.ready">Đã cài xong — dự án Firebase “{{s.fcm.client.projectId}}”</b>
+          <b v-else-if="s.fcm.mismatch">Hai file thuộc 2 dự án Firebase khác nhau — tải lại cho khớp</b>
+          <b v-else>Chưa cài xong: đã có {{(s.fcm.client ? 1 : 0) + (s.fcm.sa ? 1 : 0)}}/2 file</b>
+          <small>{{s.fcm.devices ? s.fcm.devices + ' máy đang nhận thông báo qua app Android.' : 'Chưa có máy nào dùng app Android.'}}</small>
+        </div>
+      </div>
+      <div class="fcm-files">
+        <label class="fcm-f" :class="{done: s.fcm.client, busy: fcmBusy}">
+          <ic :n="s.fcm.client ? 'check' : 'upload'" s="18"></ic>
+          <span class="grow"><b>1. google-services.json</b><small>{{s.fcm.client ? 'Đã tải lên · ' + s.fcm.client.projectId : 'Cấu hình app Android'}}</small></span>
+          <span class="btn sm">{{s.fcm.client ? 'Đổi file' : 'Chọn file'}}</span>
+          <input type="file" accept=".json,application/json" hidden :disabled="fcmBusy" @change="fcmFile('client', $event)">
+        </label>
+        <label class="fcm-f" :class="{done: s.fcm.sa, busy: fcmBusy}">
+          <ic :n="s.fcm.sa ? 'check' : 'upload'" s="18"></ic>
+          <span class="grow"><b>2. Khoá tài khoản dịch vụ (.json)</b><small>{{s.fcm.sa ? 'Đã tải lên · ' + s.fcm.sa.email : 'Để máy chủ được gửi thông báo · bí mật'}}</small></span>
+          <span class="btn sm">{{s.fcm.sa ? 'Đổi file' : 'Chọn file'}}</span>
+          <input type="file" accept=".json,application/json" hidden :disabled="fcmBusy" @change="fcmFile('sa', $event)">
+        </label>
+      </div>
+      <details class="push-help" :open="!s.fcm.ready">
+        <summary>Cách lấy 2 file (làm 1 lần, khoảng 10 phút, trên máy tính)</summary>
+        <ol>
+          <li>Mở <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer">console.firebase.google.com</a> → đăng nhập Gmail → <b>Tạo dự án</b> (Create a project). Tên tuỳ ý, ví dụ <b>ctv-chat</b>. Google Analytics: tắt cũng được → <b>Tạo dự án</b>.</li>
+          <li>Ở trang tổng quan của dự án bấm biểu tượng <b>Android</b> (Thêm ứng dụng). Ô <b>Tên gói Android</b> (Android package name) nhập đúng:
+            <span class="fcm-pkg"><code>{{s.fcm.pkg}}</code><button class="btn sm" @click.prevent="copy(s.fcm.pkg)"><ic n="copy" s="14"></ic>Sao chép</button></span>
+            → <b>Đăng ký ứng dụng</b> → <b>Tải xuống google-services.json</b>. Các bước còn lại cứ bấm <b>Tiếp</b> cho tới hết. Tải file này lên ô <b>1</b>.</li>
+          <li>Bấm bánh răng <b>⚙ → Cài đặt dự án</b> (Project settings) → thẻ <b>Tài khoản dịch vụ</b> (Service accounts) → <b>Tạo khoá riêng tư mới</b> (Generate new private key) → <b>Tạo khoá</b>. Máy tải về 1 file .json → tải lên ô <b>2</b>. File này là <b>bí mật</b>, không gửi cho ai.</li>
+          <li>Xong! Gửi link tải app ở dưới cho CTV. Mỗi người cài app, đăng nhập và bấm <b>Cho phép</b> thông báo.</li>
+        </ol>
+      </details>
+      <label class="fld mt"><span>Link tải app Android (gửi cho CTV)</span>
+        <div class="row"><input class="inp grow" :value="s.fcm.apk" readonly @focus="$event.target.select()"><button class="btn" @click.prevent="copy(s.fcm.apk)"><ic n="copy" s="16"></ic>Sao chép</button></div>
+      </label>
+      <button v-if="s.fcm.client || s.fcm.sa" class="btn sm" @click="fcmClear"><ic n="trash" s="15"></ic>Gỡ cấu hình Firebase</button>
+    </div>
+
     <div class="card">
       <div class="card-h"><b>Sao lưu tự động</b><small v-if="s.backup.lastAt">Lần gần nhất: {{agoText(s.backup.lastAt)}}</small></div>
       <div class="bk-status" :class="{err: s.backup.lastError}">
@@ -1068,12 +1116,26 @@
   </div>
   <div class="card" id="thong-bao">
     <div class="card-h"><b>Thông báo trên điện thoại</b><small>Tin nhắn riêng, đơn mới, đơn được thanh toán, khi có người @nhắc tên bạn</small></div>
-    <div v-if="S.isAndroid && !S.installed" class="push-box p-off app-box">
+    <div v-if="S.isAndroid && !S.native" class="push-box p-off app-box">
       <ic n="download" s="20"></ic>
-      <div class="grow"><b>Cài thành ứng dụng (khuyên dùng)</b>
-        <small>Để CTV Chat chạy như app riêng (không còn dòng “Chrome — Nhấn để sao chép URL”) và thông báo ổn định hơn.
-          <template v-if="!S.canInstall"> Mở trang này bằng <b>Chrome</b> → menu <b>⋮</b> → <b>Cài đặt ứng dụng</b> (chọn <b>Cài đặt</b>, không chọn “Tạo lối tắt”). Nếu đã có biểu tượng cũ, xoá biểu tượng cũ trước.</template></small>
-        <button v-if="S.canInstall" class="btn primary sm mt" @click="installApp"><ic n="download" s="15"></ic>Cài đặt ứng dụng</button>
+      <div class="grow"><b>Tải app CTV Chat cho Android (khuyên dùng)</b>
+        <small>App thật, không cần Chrome: thông báo hiện ngay cả khi đã vuốt tắt app, giống Zalo / Messenger.
+          Tải file → mở file → <b>Cài đặt</b> (máy hỏi thì cho phép <b>cài ứng dụng không rõ nguồn gốc</b> từ Chrome / Trình quản lý file).
+          Cài xong mở app <b>CTV Chat</b>, đăng nhập và bấm <b>Cho phép</b> thông báo. Biểu tượng CTV Chat cũ (của Chrome) có thể xoá đi.</small>
+        <a v-if="S.apk" class="btn primary sm mt" :href="S.apk"><ic n="download" s="15"></ic>Tải app (file APK)</a>
+      </div>
+    </div>
+    <div v-if="S.native" class="push-box app-box" :class="battery ? 'p-on' : 'p-denied'">
+      <ic :n="battery ? 'check' : 'info'" s="20"></ic>
+      <div class="grow"><b>{{battery ? 'App được phép chạy nền' : 'Cho app chạy nền để không lỡ thông báo'}}</b>
+        <small v-if="!battery">Bấm nút dưới → chọn <b>Cho phép</b> (bỏ tối ưu pin cho CTV Chat).</small>
+        <small v-if="colorOS"><b>Máy Oppo / Realme / OnePlus:</b> bấm <b>Tự khởi động</b> → bật cho CTV Chat. Rồi vào Cài đặt → Ứng dụng → CTV Chat → <b>Sử dụng pin</b> → bật <b>Cho phép hoạt động nền</b> và <b>Cho phép tự khởi chạy</b>.</small>
+        <small v-else>Máy Xiaomi / Oppo / Vivo / Huawei: bấm <b>Tự khởi động</b> và bật cho CTV Chat.</small>
+        <div class="row wrap mt">
+          <button v-if="!battery" class="btn primary sm" @click="nat('openBattery')"><ic n="shield" s="15"></ic>Cho chạy nền</button>
+          <button class="btn sm" @click="nat('openAutostart')"><ic n="restore" s="15"></ic>Tự khởi động</button>
+          <button class="btn sm" @click="nat('openAppSettings')"><ic n="settings" s="15"></ic>Cài đặt app</button>
+        </div>
       </div>
     </div>
     <div class="push-box" :class="'p-' + (S.push || 'wait')">
@@ -1083,8 +1145,20 @@
       <template v-else-if="S.push === 'off'">
         <ic n="bell" s="20"></ic><div class="grow"><b>Chưa bật trên máy này</b><small>Bật để tin nhắn và đơn mới hiện lên thanh thông báo như Zalo / Messenger.</small></div>
       </template>
+      <template v-else-if="S.push === 'denied' && S.native">
+        <ic n="info" s="20"></ic><div class="grow"><b>CTV Chat đang bị tắt thông báo</b><small>Bấm <b>Mở cài đặt thông báo</b> → bật <b>Cho phép thông báo</b> (và Biểu ngữ / Hiện trên màn hình khoá), rồi quay lại app.</small></div>
+      </template>
       <template v-else-if="S.push === 'denied'">
         <ic n="info" s="20"></ic><div class="grow"><b>Bạn đã chặn thông báo cho trang này</b><small>Mở cài đặt trình duyệt → Quyền của trang web → Thông báo → Cho phép, rồi tải lại trang.</small></div>
+      </template>
+      <template v-else-if="S.push === 'nofcm'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Máy chủ chưa cài Firebase</b><small>{{admin ? 'Vào Cài đặt → “App Android & thông báo”, tải lên 2 file của Firebase (có hướng dẫn từng bước).' : 'Admin cần cài Firebase trong Cài đặt thì app mới nhận được thông báo. Hãy báo admin.'}}</small></div>
+      </template>
+      <template v-else-if="S.push === 'restart'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Cấu hình thông báo vừa thay đổi</b><small>Đóng hẳn app CTV Chat (vuốt tắt) rồi mở lại để áp dụng.</small></div>
+      </template>
+      <template v-else-if="S.push === 'nativeerr'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Chưa kết nối được dịch vụ thông báo</b><small>Kiểm tra mạng rồi bấm Bật lại. Máy cần có Google Play (dịch vụ Google).</small></div>
       </template>
       <template v-else-if="S.push === 'ios'">
         <ic n="info" s="20"></ic><div class="grow"><b>iPhone / iPad: cần thêm app vào Màn hình chính</b><small>Trong Safari bấm nút <b>Chia sẻ</b> <ic n="share" s="14" class="inl-ic"></ic> → <b>Thêm vào MH chính</b>. Mở app từ biểu tượng ngoài màn hình chính, vào lại trang này và bấm Bật (cần iOS 16.4 trở lên).</small></div>
@@ -1098,7 +1172,9 @@
       <template v-else><ic n="bell" s="20"></ic><div class="grow"><b>Đang kiểm tra…</b></div></template>
     </div>
     <div class="row wrap mt">
-      <button v-if="S.push === 'off' || S.push === 'denied'" class="btn primary" @click="enablePush"><ic n="bell" s="16"></ic>Bật thông báo trên máy này</button>
+      <button v-if="S.native && S.push === 'denied'" class="btn primary" @click="nat('openNotifSettings')"><ic n="settings" s="16"></ic>Mở cài đặt thông báo</button>
+      <button v-else-if="S.push === 'off' || S.push === 'denied' || S.push === 'nativeerr'" class="btn primary" @click="enablePush"><ic n="bell" s="16"></ic>Bật thông báo trên máy này</button>
+      <button v-if="admin && S.push === 'nofcm'" class="btn primary" @click="go('settings')"><ic n="settings" s="16"></ic>Mở Cài đặt</button>
       <template v-if="S.push === 'on'">
         <button class="btn" @click="testPush"><ic n="bell" s="16"></ic>Gửi thử</button>
         <button class="btn" @click="disablePush"><ic n="x" s="16"></ic>Tắt trên máy này</button>
@@ -1112,12 +1188,14 @@
       <summary>Bấm Gửi thử mà không thấy thông báo?</summary>
       <ul>
         <li><b>Đang mở app trên màn hình</b> thì tin mới hiện thành thanh nổi ngay trong app (không hiện lên thanh thông báo của máy để khỏi báo trùng). Thử: thoát ra màn hình chính rồi nhờ người khác nhắn / tag bạn.</li>
-        <li><b>Android:</b> Cài đặt → Ứng dụng → Chrome → Thông báo → bật, mở mục <b>Trang web</b> → trang này → bật và chọn <b>Hiện trên màn hình (Pop up)</b>. Tắt chế độ Không làm phiền. Cài đặt → Pin → Chrome → <b>Không hạn chế</b>.</li>
-        <li><b>Đóng app là mất thông báo (Oppo, Realme, OnePlus, Xiaomi, Vivo…):</b> các máy này tự tắt hẳn Chrome khi vuốt đóng app. Vào Cài đặt → Ứng dụng → <b>Chrome</b> (và <b>CTV Chat</b> nếu đã cài) → <b>Sử dụng pin</b>: bật <b>Cho phép hoạt động nền</b> và <b>Cho phép tự khởi chạy</b> (Xiaomi: <b>Tự khởi động</b> + Tiết kiệm pin: <b>Không giới hạn</b>). Có thể <b>khoá</b> Chrome trong màn hình đa nhiệm (kéo thẻ xuống / bấm biểu tượng ổ khoá).</li>
+        <li v-if="S.native"><b>App Android:</b> Cài đặt → Ứng dụng → <b>CTV Chat</b> → Thông báo → bật, mục <b>Tin nhắn và đơn hàng</b> chọn <b>Hiện trên màn hình / Biểu ngữ</b> và có âm thanh. Sử dụng pin → <b>Cho phép hoạt động nền</b> + <b>Tự khởi chạy</b>. Tắt chế độ Không làm phiền. Trong màn hình đa nhiệm có thể <b>khoá</b> thẻ CTV Chat (bấm biểu tượng ổ khoá).</li>
+        <li v-if="!S.native"><b>Android:</b> nên dùng <b>app CTV Chat cho Android</b> (tải ở trên) — ổn định hơn nhiều so với Chrome. Nếu vẫn dùng Chrome: Cài đặt → Ứng dụng → Chrome → Thông báo → bật, mở mục <b>Trang web</b> → trang này → bật và chọn <b>Hiện trên màn hình (Pop up)</b>. Tắt chế độ Không làm phiền. Cài đặt → Pin → Chrome → <b>Không hạn chế</b>.</li>
+        <li v-if="!S.native"><b>Đóng app là mất thông báo (Oppo, Realme, OnePlus, Xiaomi, Vivo…):</b> các máy này tự tắt hẳn Chrome khi vuốt đóng app. Vào Cài đặt → Ứng dụng → <b>Chrome</b> (và <b>CTV Chat</b> nếu đã cài) → <b>Sử dụng pin</b>: bật <b>Cho phép hoạt động nền</b> và <b>Cho phép tự khởi chạy</b> (Xiaomi: <b>Tự khởi động</b> + Tiết kiệm pin: <b>Không giới hạn</b>). Có thể <b>khoá</b> Chrome trong màn hình đa nhiệm (kéo thẻ xuống / bấm biểu tượng ổ khoá).</li>
         <li><b>iPhone:</b> phải mở app từ biểu tượng ở Màn hình chính. Cài đặt → Thông báo → <b>CTV Chat</b> → Cho phép thông báo, kiểu <b>Biểu ngữ</b>. Tắt Tập trung (Focus).</li>
         <li>Trong nhóm, chỉ người <b>được tag</b> mới nhận thông báo: gõ <b>@</b> rồi chọn tên trong danh sách, hoặc gõ <b>@tên</b> (ví dụ <b>@quang</b>). Tag đúng thì tên được <b>tô màu</b> trong tin. Tự tag chính mình thì không có thông báo.</li>
       </ul>
     </details>
+    <p v-if="S.native" class="muted small mt">App CTV Chat cho Android · bản {{appVer}}</p>
     <label class="switch mt"><input type="checkbox" :checked="me.notifyGroup" @change="toggleGroup"><span>Báo <b>mọi tin nhắn trong nhóm</b> (mặc định trong nhóm chỉ báo khi có người <b>@nhắc tên bạn</b> hoặc admin <b>@all</b>)</span></label>
   </div>
   <form class="card" @submit.prevent="changePw">

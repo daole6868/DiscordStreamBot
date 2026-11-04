@@ -21,6 +21,7 @@ const BANKS = require('./lib/banks');
 const { vietqrPayload, safeMemo } = require('./lib/vietqr');
 const { fold } = require('./lib/fold');
 const webpush = require('./lib/webpush');
+const fcm = require('./lib/fcm');
 const bankByBin = new Map(BANKS.map((b) => [b.bin, b]));
 
 const ROOT = __dirname;
@@ -115,7 +116,7 @@ function setCookie(req, res, value, maxAge) {
 const DEFAULT_SETTINGS = {
   app_name: 'CTV Chat', gmail_only: '1',
   backup_hours: '1', backup_keep: '72', backup_keep_daily: '90', backup_dir2: '',
-  vapid_public: '', vapid_private: '',
+  vapid_public: '', vapid_private: '', fcm_client: '', fcm_sa: '',
   purge_img_on: '0', purge_img_days: '30', purge_cred_on: '0', purge_cred_days: '3', purge_order_on: '0', purge_order_days: '180', purge_last: '',
 };
 const setting = (k) => store.setting(k, DEFAULT_SETTINGS[k]);
@@ -396,9 +397,26 @@ function vapid() {
   vapidCache.subject = 'mailto:' + (owner ? owner.email : 'admin@ctv-chat.local');
   return vapidCache;
 }
+// ---- app Android: Firebase Cloud Messaging (admin tải 2 file của Firebase lên trong Cài đặt)
+const ANDROID_PKG = 'shop.gachaz.ctvchat';
+const APK_URL = process.env.CTV_APK_URL || 'https://github.com/daole6868/DiscordStreamBot/releases/latest/download/CTV-Chat.apk';
+const fcmClient = () => parseJSON(setting('fcm_client'), null);
+const fcmSa = () => parseJSON(setting('fcm_sa'), null);
+function fcmStatus() {
+  const c = fcmClient(), sa = fcmSa();
+  return {
+    client: c ? { projectId: c.projectId, appId: c.appId } : null,
+    sa: sa ? { projectId: sa.project_id, email: sa.client_email } : null,
+    ready: !!(c && sa && c.projectId === sa.project_id),
+    mismatch: !!(c && sa && c.projectId !== sa.project_id),
+    devices: store.get("SELECT COUNT(*) n FROM push_subs WHERE kind = 'fcm'").n,
+    pkg: ANDROID_PKG, apk: APK_URL,
+  };
+}
 /** Tên máy dễ đọc từ User-Agent (để báo kết quả "Gửi thử"). */
 function deviceName(ua) {
   ua = String(ua || '');
+  if (/CTVChatApp/.test(ua)) return 'App Android CTV Chat';
   const os = /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Máy';
   const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
   return br ? `${os} · ${br}` : os;
@@ -409,12 +427,18 @@ function pushTo(userIds, payload, topic) {
   if (!ids.length) return Promise.resolve([]);
   const subs = store.all('SELECT * FROM push_subs WHERE user_id IN (SELECT value FROM json_each(?))', JSON.stringify(ids));
   if (!subs.length) return Promise.resolve([]);
-  const v = vapid();
-  return Promise.all(subs.map((sub) => webpush.send(sub, payload, v, { topic }).then((r) => {
+  const v = subs.some((s) => s.kind !== 'fcm') ? vapid() : null;
+  const sa = subs.some((s) => s.kind === 'fcm') ? fcmSa() : null;
+  const sendOne = (sub) => {
+    if (sub.kind !== 'fcm') return webpush.send(sub, payload, v, { topic });
+    if (!sa) return Promise.resolve({ status: 0, error: 'Admin chưa cài Firebase (Cài đặt → Thông báo app Android)' });
+    return fcm.send(sa, sub.endpoint.slice(4), payload);
+  };
+  return Promise.all(subs.map((sub) => sendOne(sub).then((r) => {
     if (r.status >= 200 && r.status < 300) store.run('UPDATE push_subs SET last_ok = ?, fails = 0 WHERE id = ?', now(), sub.id);
     else {
-      console.error(`  [thông báo] gửi tới ${deviceName(sub.ua)} của người dùng #${sub.user_id} lỗi: ${r.status || r.error}`);
-      if (r.status === 404 || r.status === 410) store.run('DELETE FROM push_subs WHERE id = ?', sub.id); // máy đã tắt / gỡ app
+      console.error(`  [thông báo] gửi tới ${deviceName(sub.ua)} của người dùng #${sub.user_id} lỗi: ${r.status || ''} ${r.error || ''}`);
+      if (r.status === 404 || r.status === 410 || r.gone) store.run('DELETE FROM push_subs WHERE id = ?', sub.id); // máy đã tắt / gỡ app
       else {
         store.run('UPDATE push_subs SET fails = fails + 1 WHERE id = ?', sub.id);
         if (sub.fails >= 30) store.run('DELETE FROM push_subs WHERE id = ?', sub.id);
@@ -856,6 +880,23 @@ route('POST', '/api/push/subscribe', 'active', ({ req, user, body }) => {
   store.run(`INSERT INTO push_subs(user_id, endpoint, p256dh, auth, ua, created_at) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, fails = 0`,
   user.id, endpoint, p256dh.replace(/=+$/, ''), auth.replace(/=+$/, ''), str(req.headers['user-agent'], 300), now());
+  return { ok: true, devices: store.get('SELECT COUNT(*) n FROM push_subs WHERE user_id = ?', user.id).n };
+});
+// app Android: cấu hình Firebase (công khai) + link tải app
+route('GET', '/api/app/config', 'none', () => {
+  const c = fcmClient(), sa = fcmSa();
+  return { fcm: c && sa && c.projectId === sa.project_id ? c : null, apk: APK_URL, pkg: ANDROID_PKG };
+});
+route('POST', '/api/push/native', 'active', ({ req, user, body }) => {
+  const token = String(body.token || '');
+  if (!/^[A-Za-z0-9_:.-]{20,4096}$/.test(token)) fail(400, 'Mã thiết bị không hợp lệ');
+  const ua = str(req.headers['user-agent'], 300);
+  store.tx(() => {
+    store.run(`INSERT INTO push_subs(user_id, endpoint, p256dh, auth, ua, created_at, kind) VALUES (?, ?, '', '', ?, ?, 'fcm')
+      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, ua = excluded.ua, kind = 'fcm', fails = 0`, user.id, 'fcm:' + token, ua, now());
+    // đã có app thật trên điện thoại → bỏ thông báo qua Chrome của điện thoại Android (tránh báo 2 lần)
+    if (/Android/.test(ua)) store.run("DELETE FROM push_subs WHERE user_id = ? AND kind = 'web' AND ua LIKE '%Android%'", user.id);
+  });
   return { ok: true, devices: store.get('SELECT COUNT(*) n FROM push_subs WHERE user_id = ?', user.id).n };
 });
 route('POST', '/api/push/unsubscribe', 'active', ({ user, body }) => {
@@ -1403,7 +1444,34 @@ route('GET', '/api/settings', 'admin', () => ({
   backupHours: Number(setting('backup_hours')), backupKeep: Number(setting('backup_keep')), backupKeepDaily: Number(setting('backup_keep_daily')),
   backupDir2: setting('backup_dir2'), backup: backupStatus(),
   purge: purgeCfg(), purgeLast: parseJSON(setting('purge_last'), null),
+  fcm: fcmStatus(),
 }));
+// tải lên / gỡ 2 file của Firebase để gửi thông báo tới app Android
+route('POST', '/api/settings/fcm', 'admin', async ({ user, body }) => {
+  const changes = {};
+  if (body.clear) {
+    store.setSetting('fcm_client', ''); store.setSetting('fcm_sa', '');
+    changes.fcm = 'đã gỡ';
+  } else {
+    let c = null, sa = null;
+    try {
+      if (body.client) c = fcm.parseClient(body.client, ANDROID_PKG);
+      if (body.sa) sa = fcm.parseServiceAccount(body.sa);
+    } catch (e) { fail(400, e.message); }
+    if (!c && !sa) fail(400, 'Chọn file để tải lên');
+    const pc = c ? c.projectId : (fcmClient() || {}).projectId, ps = sa ? sa.project_id : (fcmSa() || {}).project_id;
+    if (pc && ps && pc !== ps) fail(400, `Hai file thuộc 2 dự án Firebase khác nhau (${pc} và ${ps}). Hãy lấy cả 2 file trong cùng một dự án.`);
+    if (sa) {
+      fcm.forget(sa);
+      try { await fcm.accessToken(sa); } catch (e) { fail(400, e.message); }
+      store.setSetting('fcm_sa', JSON.stringify(sa));
+      changes.fcmKey = sa.client_email;
+    }
+    if (c) { store.setSetting('fcm_client', JSON.stringify(c)); changes.fcmApp = c.projectId; }
+  }
+  addLog(user.id, 'settings.update', { details: { changes } });
+  return fcmStatus();
+});
 route('PATCH', '/api/settings', 'admin', ({ user, body }) => {
   const changes = {};
   const set = (k, v) => { if (String(v) !== setting(k)) { changes[k] = [setting(k), String(v)]; store.setSetting(k, v); } };
@@ -1602,7 +1670,7 @@ route('GET', '/api/export.json', 'admin', ({ user, res }) => {
     convs: store.all('SELECT * FROM convs'), conv_members: store.all('SELECT * FROM conv_members'),
     messages: store.all('SELECT * FROM messages'), orders: store.all('SELECT * FROM orders'),
     settlements: store.all('SELECT * FROM settlements'),
-    logs: store.all('SELECT * FROM logs'), settings: store.all("SELECT * FROM settings WHERE key != 'vapid_private'"),
+    logs: store.all('SELECT * FROM logs'), settings: store.all("SELECT * FROM settings WHERE key NOT IN ('vapid_private', 'fcm_sa')"),
   };
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="ctv-chat-du-lieu-${isoDay(now())}.json"` });
   res.end(JSON.stringify(data, null, 1));
