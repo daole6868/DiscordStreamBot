@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a7cff">
+  <title>CTV Chat</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="app"><div class="splash"><div class="logo-big"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.6-5.2A8.5 8.5 0 1 1 21 12z"/></svg></div></div></div>
+
+<!-- ================================================================ GỐC -->
+<script type="text/x-template" id="tpl-root">
+<div v-if="S.phase==='loading'" class="splash"><div class="logo-big"><ic n="chat" s="40"></ic></div></div>
+
+<div v-else-if="S.phase==='error'" class="auth">
+  <div class="auth-card"><h2>Không kết nối được máy chủ</h2><p class="muted">{{S.authErr}}</p><button class="btn primary block" @click="reload">Thử lại</button></div>
+</div>
+
+<!-- ---------------------------------------------------------------- ĐĂNG NHẬP / ĐĂNG KÝ -->
+<div v-else-if="S.phase==='auth'" class="auth">
+  <form class="auth-card" @submit.prevent="submitAuth">
+    <div class="logo-big"><ic n="chat" s="40"></ic></div>
+    <h1>{{S.settings.appName}}</h1>
+    <template v-if="S.needSetup">
+      <p class="muted center">Lần đầu sử dụng — tạo tài khoản <b>Admin</b> (quyền cao nhất). Admin duyệt mọi thành viên mới.</p>
+    </template>
+    <div v-else class="seg block">
+      <button type="button" :class="{on: S.authTab==='login'}" @click="S.authTab='login'; S.authErr=''">Đăng nhập</button>
+      <button type="button" :class="{on: S.authTab==='register'}" @click="S.authTab='register'; S.authErr=''">Đăng ký</button>
+    </div>
+    <label class="fld"><span>Gmail</span><input v-model="auth.email" type="email" autocomplete="email" placeholder="ten@gmail.com" required></label>
+    <label v-if="S.authTab==='register'" class="fld"><span>Tên hiển thị</span><input v-model="auth.name" autocomplete="name" placeholder="Ví dụ: Quang" required minlength="2"></label>
+    <label class="fld"><span>Mật khẩu</span><input v-model="auth.password" type="password" :autocomplete="S.authTab==='register' ? 'new-password' : 'current-password'" required minlength="6" placeholder="Ít nhất 6 ký tự"></label>
+    <label v-if="S.authTab==='register'" class="fld"><span>Nhập lại mật khẩu</span><input v-model="auth.password2" type="password" autocomplete="new-password" required minlength="6"></label>
+    <div v-if="S.authErr" class="alert err">{{S.authErr}}</div>
+    <button class="btn primary block lg" :disabled="S.authBusy">{{S.authBusy ? 'Đang xử lý…' : S.needSetup ? 'Tạo tài khoản Admin' : S.authTab==='login' ? 'Đăng nhập' : 'Gửi yêu cầu tham gia'}}</button>
+    <p v-if="S.authTab==='register' && !S.needSetup" class="muted small center">Đây là app nội bộ: sau khi đăng ký, bạn chờ admin duyệt mới vào được.</p>
+  </form>
+</div>
+
+<!-- ---------------------------------------------------------------- CHỜ DUYỆT -->
+<div v-else-if="S.phase==='pending'" class="auth">
+  <div class="auth-card center">
+    <div class="logo-big warn"><ic n="clock" s="40"></ic></div>
+    <h2>Đang chờ admin duyệt</h2>
+    <p class="muted">Yêu cầu tham gia của <b>{{S.me.email}}</b> đã được gửi. Khi admin duyệt, trang này tự vào app — không cần tải lại.</p>
+    <button class="btn block" @click="logout"><ic n="logout"></ic>Đăng xuất</button>
+  </div>
+</div>
+
+<!-- ---------------------------------------------------------------- ỨNG DỤNG -->
+<div v-else class="shell" :class="'v-' + S.view">
+  <nav class="nav">
+    <div class="nav-logo"><ic n="chat" s="24"></ic></div>
+    <button class="nav-btn hide-m" :class="{on: S.search}" @click="openSearch()" title="Tìm kiếm (Ctrl+K)"><ic n="search" s="22"></ic><span>Tìm kiếm</span></button>
+    <button v-for="(n, i) in navItems" :key="n.v" class="nav-btn" :class="{on: S.view===n.v, 'hide-m': i >= 4}" @click="go(n.v)" :title="n.t">
+      <ic :n="n.ic" s="22"></ic><span>{{n.t}}</span>
+      <em v-if="n.badge" class="nb" :class="{warn: n.dot}">{{n.badge > 99 ? '99+' : n.badge}}</em>
+    </button>
+    <button class="nav-btn nav-more" :class="{on: more || moreOn}" @click="more = !more" title="Thêm">
+      <ic n="menu" s="22"></ic><span>Thêm</span>
+      <em v-if="moreBadge" class="nb warn">{{moreBadge > 99 ? '99+' : moreBadge}}</em>
+    </button>
+    <div class="grow"></div>
+    <button class="nav-btn me hide-m" :class="{on: S.view==='account'}" @click="go('account')" title="Tài khoản"><avatar :u="S.me.id" size="34"></avatar><span>Tôi</span></button>
+  </nav>
+  <div v-if="more" class="sheet-back" @click.self="more = false">
+    <div class="sheet">
+      <button class="sheet-me" :class="{on: S.view==='account'}" @click="goMore('account')">
+        <avatar :u="S.me.id" :size="42"></avatar>
+        <span class="grow"><b>{{S.me.name}}</b><small>{{S.me.email}} · Tài khoản của tôi</small></span>
+        <ic n="chevr" s="18"></ic>
+      </button>
+      <button class="sheet-i" @click="openSearch()"><ic n="search" s="20"></ic><span class="grow">Tìm kiếm</span><ic n="chevr" s="16"></ic></button>
+      <button v-for="n in navMore" :key="n.v" class="sheet-i" :class="{on: S.view===n.v}" @click="goMore(n.v)">
+        <ic :n="n.ic" s="20"></ic><span class="grow">{{n.t}}</span>
+        <em v-if="n.badge" class="badge warn">{{n.badge}}</em><ic n="chevr" s="16"></ic>
+      </button>
+    </div>
+  </div>
+
+  <main class="main">
+    <div v-if="!S.connected" class="conn">Mất kết nối — đang thử lại…</div>
+
+    <!-- ============ ĐOẠN CHAT ============ -->
+    <div v-if="S.view==='chat'" class="chat" :class="{'show-chat': S.mobileChat}">
+      <section class="convs">
+        <header class="convs-h">
+          <h1>Đoạn chat</h1>
+          <div class="row">
+            <button v-if="admin" class="btn primary sm" title="Lên đơn cho một CTV" @click="openOrderForm()"><ic n="plus" s="16"></ic>Lên đơn</button>
+            <button class="ibtn soft" :title="admin ? 'Nhắn riêng cho thành viên' : 'Nhắn riêng cho admin'" @click="openNewChat"><ic n="edit"></ic></button>
+            <button v-if="admin" class="ibtn soft" title="Tạo nhóm" @click="openGroup()"><ic n="group"></ic></button>
+          </div>
+        </header>
+        <button class="search search-btn" @click="openSearch()"><ic n="search" s="16"></ic><span>Tìm tin nhắn, đơn, tài khoản…</span></button>
+        <div v-if="(S.push === 'off' || S.push === 'ios') && !pushHide" class="push-banner">
+          <ic n="bell" s="18"></ic>
+          <span>{{S.push === 'ios' ? 'iPhone: thêm app vào Màn hình chính để nhận thông báo' : 'Bật thông báo để nhận tin nhắn và đơn mới trên điện thoại'}}</span>
+          <button class="btn sm primary" @click="enablePush">{{S.push === 'ios' ? 'Xem cách' : 'Bật'}}</button>
+          <button class="ibtn sm" title="Ẩn" @click="hidePush"><ic n="x" s="14"></ic></button>
+        </div>
+        <button v-if="admin && S.pending" class="pending-banner" @click="go('members')"><ic n="users" s="18"></ic><span><b>{{S.pending}} người</b> đang chờ duyệt</span><ic n="chevr" s="16"></ic></button>
+        <div class="conv-list">
+          <button v-for="c in convList" :key="c.id" class="conv" :class="{on: c.id===S.activeId, unread: c.unread}" @click="openConv(c.id)">
+            <avatar :u="c.partnerId" :group="c.type==='group'" :size="52" dot></avatar>
+            <div class="conv-b">
+              <div class="conv-t"><b>{{convTitle(c)}}</b><span v-if="c.isMain" class="tag">Nhóm chung</span></div>
+              <div class="conv-p"><span class="pv">{{previewWho(c)}}<ic v-if="previewIcon(c)" :n="previewIcon(c)" s="14" class="pv-ic"></ic>{{previewBody(c)}}</span><span v-if="c.lastMsg" class="tm">· {{shortTime(c.lastMsg.createdAt)}}</span></div>
+              <div v-if="admin && c.openOrders" class="conv-o"><ic n="orders" s="13"></ic>{{c.openOrders}} đơn đang làm</div>
+            </div>
+            <span v-if="S.mentioned[c.id] || c.mention" class="badge ment" title="Có người nhắc đến bạn">@</span>
+            <span v-if="c.unread" class="badge">{{c.unread > 99 ? '99+' : c.unread}}</span>
+          </button>
+          <div v-if="!convList.length" class="empty small">Chưa có đoạn chat nào</div>
+        </div>
+      </section>
+
+      <section v-if="active" class="pane" @dragover.prevent="dragOver=true" @drop.prevent="onDrop">
+        <header class="pane-h">
+          <button class="ibtn only-m" @click="backToList" title="Quay lại"><ic n="back"></ic></button>
+          <avatar :u="active.partnerId" :group="active.type==='group'" :size="40" dot></avatar>
+          <div class="pane-t"><b>{{convTitle(active)}}</b><small :class="{online: partner && partner.online}">{{subtitle}}</small></div>
+          <div class="grow"></div>
+          <button v-if="canOrder" class="btn primary hide-m" @click="openOrderForm({assigneeId: partner.id})"><ic n="plus"></ic>Lên đơn</button>
+          <button v-if="admin && active.type==='group'" class="ibtn" @click="openGroup(active)" title="Sửa nhóm"><ic n="users"></ic></button>
+          <button class="ibtn" @click="openSearch({convId: active.id})" title="Tìm trong đoạn chat này"><ic n="search"></ic></button>
+          <button class="ibtn" :class="{on: S.info}" @click="S.info = !S.info" title="Thông tin"><ic n="info"></ic></button>
+        </header>
+
+        <div class="msgs" ref="scroller" @scroll="onScroll">
+          <div v-if="S.more[S.activeId]" class="load-older">{{S.loadingMsgs ? 'Đang tải…' : 'Kéo lên để xem tin cũ hơn'}}</div>
+          <div v-else class="conv-start">
+            <avatar :u="active.partnerId" :group="active.type==='group'" :size="72"></avatar>
+            <b>{{convTitle(active)}}</b>
+            <small v-if="canOrder">Bấm <b>Lên đơn</b> để giao đơn cho {{partner.name}}. CTV gửi ảnh + bấm Done thì đơn mới được tính tiền.</small>
+            <small v-else-if="active.isMain">Nhóm chung của cả team — thành viên mới được duyệt sẽ tự vào đây.</small>
+          </div>
+          <template v-for="it in items" :key="it.key">
+            <div v-if="it.kind==='day'" class="day"><span>{{it.label}}</span></div>
+            <div v-else-if="it.kind==='sys'" class="sys" :class="{flash: S.flashMsg===it.m.id}" :data-mid="it.m.id"
+                 @click="it.m.orderId && openOrderDetail(it.m.orderId)"><span><ic v-if="it.m.icon" :n="it.m.icon" s="14" class="sys-ic" :class="'si-' + it.m.icon"></ic>{{it.m.text}}</span><time>{{fmtTime(it.m.createdAt)}}</time></div>
+            <div v-else-if="it.kind==='order'" class="mrow is-order" :class="{mine: it.mine, flash: S.flashMsg===it.m.id}" :data-mid="it.m.id"
+                 @touchstart.passive="swStart($event, it.m)" @touchmove.passive="swMove" @touchend="swEnd" @touchcancel="swEnd">
+              <i class="sw-ic"><ic n="reply" s="16"></ic></i>
+              <div v-if="!it.mine" class="av-slot"><avatar :u="it.m.senderId" :size="28"></avatar></div>
+              <div class="mcol">
+                <order-card v-if="S.orders[it.m.orderId]" :order="S.orders[it.m.orderId]" mode="chat"></order-card>
+                <div class="mtime">{{fmtTime(it.m.createdAt)}}<span v-if="it.mine && seenId===it.m.id" class="seen"> · Đã xem</span></div>
+              </div>
+              <div class="mact"><button class="mbtn" title="Trả lời" @click="setReply(it.m)"><ic n="reply" s="16"></ic></button></div>
+            </div>
+            <div v-else class="mrow" :class="{mine: it.mine, first: it.first, last: it.last, flash: S.flashMsg===it.m.id, ment: !it.mine && mentionsMe(it.m)}" :data-mid="it.m.id"
+                 @touchstart.passive="swStart($event, it.m)" @touchmove.passive="swMove" @touchend="swEnd" @touchcancel="swEnd">
+              <i v-if="!it.m.deleted" class="sw-ic"><ic n="reply" s="16"></ic></i>
+              <div v-if="!it.mine" class="av-slot"><avatar v-if="it.last" :u="it.m.senderId" :size="28"></avatar></div>
+              <div class="mcol">
+                <div v-if="it.showName" class="mname">{{uname(it.m.senderId)}}</div>
+                <div v-if="it.m.deleted" class="bubble deleted">Tin nhắn đã thu hồi</div>
+                <template v-else>
+                  <msg-quote v-if="it.m.replyTo && !it.m.text" :q="it.m.replyTo" class="solo" @click.stop="jumpQuote(it.m.replyTo)"></msg-quote>
+                  <div v-if="it.m.imgPurged && !it.m.images.length" class="bubble purged"><ic n="image" s="14"></ic>{{it.m.imgPurged}} ảnh đã tự xoá</div>
+                  <div v-if="it.m.images.length" class="mimgs" :class="'n' + Math.min(it.m.images.length, 4)">
+                    <img v-for="(u, i) in it.m.images" :key="u" :src="u" loading="lazy" alt="" @click="viewImg(it.m.images, i)">
+                  </div>
+                  <div v-if="it.m.text" class="bubble" :title="fmtDT(it.m.createdAt)"><msg-quote v-if="it.m.replyTo" :q="it.m.replyTo" @click.stop="jumpQuote(it.m.replyTo)"></msg-quote><template v-for="(p, i) in richText(it.m)" :key="i"><a v-if="p.url" :href="p.v" target="_blank" rel="noopener noreferrer">{{p.v}}</a><b v-else-if="p.mention" class="mention" :class="{me: p.me}">{{p.v}}</b><template v-else>{{p.v}}</template></template></div>
+                </template>
+                <div v-if="it.last" class="mtime">{{fmtTime(it.m.createdAt)}}<span v-if="it.mine && seenId===it.m.id" class="seen"> · Đã xem</span></div>
+              </div>
+              <div v-if="!it.m.deleted" class="mact">
+                <button class="mbtn" title="Trả lời" @click="setReply(it.m)"><ic n="reply" s="16"></ic></button>
+                <button v-if="canDel(it.m)" class="mbtn del" title="Thu hồi" @click="delMsg(it.m)"><ic n="trash" s="15"></ic></button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <button v-if="newMsgs" class="new-pill" @click="scrollBottom()">Tin nhắn mới <ic n="down" s="16"></ic></button>
+        <div v-if="dragOver" class="drop-ov" @dragleave="dragOver=false" @drop.prevent="onDrop">Thả ảnh vào đây để gửi</div>
+
+        <div v-if="mention" class="mention-pick">
+          <button v-for="(it, k) in mention.items" :key="it.id" class="mp-i" :class="{on: k === mention.i}" @mousedown.prevent="pickMention(it)" @click="pickMention(it)">
+            <span v-if="it.id === 'all'" class="mp-all">@</span><avatar v-else :u="it.id" :size="28"></avatar>
+            <b>@{{it.name}}</b><small v-if="it.label">{{it.label}}</small>
+          </button>
+        </div>
+        <div v-if="reply && !(partner && partner.status !== 'active')" class="reply-bar">
+          <ic n="reply" s="18"></ic>
+          <div class="grow"><b>Đang trả lời {{reply.senderId === S.me.id ? 'chính bạn' : uname(reply.senderId)}}</b><span><ic v-if="quoteIcon(reply)" :n="quoteIcon(reply)" s="13" class="mq-ic"></ic>{{quoteText(reply)}}</span></div>
+          <button class="ibtn sm" title="Huỷ trả lời" @click="reply = null"><ic n="x" s="16"></ic></button>
+        </div>
+        <footer v-if="!(partner && partner.status !== 'active')" class="composer">
+          <button class="ibtn ac" @click="pickImages" title="Gửi ảnh"><ic n="image"></ic></button>
+          <button v-if="canOrder" class="ibtn ac only-m" @click="openOrderForm({assigneeId: partner.id})" title="Lên đơn"><ic n="orders"></ic></button>
+          <div class="inbox"><textarea ref="input" v-model="text" rows="1" :placeholder="active.type === 'group' ? 'Aa · gõ @ để nhắc tên' : 'Aa'" @keydown="onKey" @input="onInput" @click="checkMention($event.target)" @blur="blurMention" @paste="onPaste"></textarea></div>
+          <button class="ibtn ac" @click="sendText()" :disabled="!text.trim()" title="Gửi (Enter)"><ic n="send"></ic></button>
+          <input type="file" ref="img" hidden multiple accept="image/*" @change="onImages([...$event.target.files]); $event.target.value = ''">
+        </footer>
+        <div v-else class="composer locked">Tài khoản này không còn hoạt động — không nhắn tin được.</div>
+
+        <!-- giữ lâu 1 tin nhắn (điện thoại) -->
+        <div v-if="menu" class="mm-back" @click.self="menu = null">
+          <div class="mm">
+            <msg-quote :q="quoteOfMsg(menu)" class="mm-prev"></msg-quote>
+            <button class="sheet-i" @click="setReply(menu)"><ic n="reply" s="20"></ic><span class="grow">Trả lời</span></button>
+            <button v-if="menuText(menu)" class="sheet-i" @click="copy(menuText(menu)); menu = null"><ic n="copy" s="20"></ic><span class="grow">Sao chép</span></button>
+            <button v-if="canDel(menu)" class="sheet-i danger" @click="delMsg(menu); menu = null"><ic n="trash" s="20"></ic><span class="grow">Thu hồi</span></button>
+            <button class="sheet-i muted" @click="menu = null"><ic n="x" s="20"></ic><span class="grow">Đóng</span></button>
+          </div>
+        </div>
+      </section>
+      <section v-else class="pane welcome">
+        <div class="logo-big"><ic n="chat" s="40"></ic></div>
+        <h2>Chào {{S.me.name}}!</h2>
+        <p class="muted">Chọn một đoạn chat bên trái<span v-if="admin">, hoặc bấm vào một CTV rồi <b>Lên đơn</b></span>.</p>
+      </section>
+
+      <!-- thông tin bên phải -->
+      <aside v-if="active && S.info" class="info">
+        <button class="ibtn info-x" @click="S.info=false" title="Đóng"><ic n="x"></ic></button>
+        <div class="info-hero">
+          <avatar :u="active.partnerId" :group="active.type==='group'" :size="80" dot></avatar>
+          <b>{{convTitle(active)}}</b><small>{{subtitle}}</small>
+        </div>
+        <template v-if="partner">
+          <div v-if="admin && (partner.email || partner.phone || partner.bank)" class="info-sec">
+            <h4>Liên hệ</h4>
+            <div v-if="partner.email" class="kv"><span>Gmail</span><b>{{partner.email}}</b></div>
+            <div v-if="partner.phone" class="kv"><span>SĐT</span><b>{{partner.phone}}</b></div>
+            <div v-if="partner.bank" class="kv"><span>Nhận tiền</span><b>{{partner.bank}}</b></div>
+          </div>
+          <template v-if="summary">
+            <div class="info-sec">
+              <h4>{{admin ? 'Doanh thu của ' + summary.user.name : 'Doanh thu của bạn'}}</h4>
+              <div class="mini">
+                <div><span>Tuần này</span><b>{{money(summary.week.total)}}</b><small>{{summary.week.count}} đơn</small></div>
+                <div><span>Tháng này</span><b>{{money(summary.month.total)}}</b><small>{{summary.month.count}} đơn</small></div>
+                <div class="wide"><span>Chưa thanh toán</span><b>{{money(summary.unpaid.total)}}</b><small>{{summary.unpaid.count}} đơn đã xong, chờ trả tiền</small></div>
+              </div>
+              <div class="row mt">
+                <button class="btn sm" @click="revenueOf(summary.user.id)"><ic n="chart" s="16"></ic>Doanh thu</button>
+                <button class="btn sm" @click="historyOf(summary.user.id)"><ic n="history" s="16"></ic>Lịch sử</button>
+              </div>
+            </div>
+            <div class="info-sec">
+              <h4>Đơn đang làm ({{summary.open.length}})</h4>
+              <button v-for="o in summary.open" :key="o.id" class="open-o" @click="jumpOrder(o)">
+                <b>{{o.code}}</b><span>{{o.content}}</span><em>{{money(o.price)}}</em>
+              </button>
+              <div v-if="!summary.open.length" class="muted small">Không có đơn nào đang làm</div>
+              <button v-if="canOrder" class="btn primary block mt" @click="openOrderForm({assigneeId: partner.id})"><ic n="plus"></ic>Lên đơn mới</button>
+            </div>
+          </template>
+        </template>
+        <div v-else-if="active.type==='group'" class="info-sec">
+          <h4>Thành viên ({{active.members.length}})</h4>
+          <div v-for="id in active.members" :key="id" class="mem-row">
+            <avatar :u="id" :size="34" dot></avatar><span>{{uname(id)}}</span>
+            <small v-if="S.users[id] && S.users[id].role==='admin'" class="tag">Admin</small>
+            <button v-if="id !== S.me.id && (admin || (S.users[id] && S.users[id].role==='admin'))" class="ibtn sm" @click="openDm(id)" title="Nhắn riêng"><ic n="chat" s="16"></ic></button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <orders-view v-else-if="S.view==='orders'"></orders-view>
+    <revenue-view v-else-if="S.view==='revenue'"></revenue-view>
+    <settle-view v-else-if="S.view==='settle'"></settle-view>
+    <history-view v-else-if="S.view==='history'"></history-view>
+    <members-view v-else-if="S.view==='members' && admin"></members-view>
+    <settings-view v-else-if="S.view==='settings' && admin"></settings-view>
+    <account-view v-else-if="S.view==='account'"></account-view>
+  </main>
+  <search-panel v-if="S.search"></search-panel>
+</div>
+
+<!-- ================================================================ HỘP THOẠI -->
+<div v-if="S.modal" class="modal-back" @pointerdown.self="closeModal(false)">
+  <!-- xác nhận / nhập chữ -->
+  <div v-if="S.modal.kind==='confirm'" class="modal sm">
+    <h3>{{S.modal.title}}</h3>
+    <p v-if="S.modal.text" class="muted">{{S.modal.text}}</p>
+    <textarea v-if="S.modal.input==='area'" class="inp" rows="4" v-model="S.modal.value" :placeholder="S.modal.placeholder" autofocus></textarea>
+    <div class="modal-f">
+      <button class="btn" @click="closeModal(false)">Huỷ</button>
+      <button class="btn" :class="S.modal.danger ? 'danger-solid' : 'primary'" @click="confirmOk">{{S.modal.ok || 'Đồng ý'}}</button>
+    </div>
+  </div>
+
+  <!-- tạo / sửa đơn -->
+  <form v-else-if="S.modal.kind==='order'" class="modal" @submit.prevent="submitOrder">
+    <h3>{{S.modal.order ? 'Sửa đơn ' + S.modal.order.code : 'Lên đơn mới'}}</h3>
+    <label class="fld"><span>Giao cho CTV</span>
+      <select v-if="!S.modal.order" class="inp" v-model="form.assigneeId" required>
+        <option value="" disabled>— Chọn CTV —</option>
+        <option v-for="u in members" :key="u.id" :value="u.id">{{u.name}}</option>
+      </select>
+      <div v-else class="inp ro"><avatar :u="S.modal.order.assigneeId" :size="22"></avatar> {{uname(S.modal.order.assigneeId)}}</div>
+    </label>
+    <label class="fld"><span>Nội dung đơn</span>
+      <textarea class="inp" rows="3" v-model="form.content" placeholder="Ví dụ: Rush map Sumeru 100%" required></textarea></label>
+    <label class="fld"><span>Tài khoản / mật khẩu <em class="tag">gửi cho CTV đăng nhập</em></span>
+      <textarea class="inp mono" rows="3" v-model="form.credentials" spellcheck="false" autocomplete="off" placeholder="Dòng 1: tài khoản&#10;Dòng 2: mật khẩu&#10;Dòng 3+: ghi chú thêm"></textarea></label>
+    <div class="grid2 keep">
+      <label class="fld"><span>Tiền công</span>
+        <input class="inp" v-model="form.price" inputmode="decimal" placeholder="150k hoặc 150000" required>
+        <small class="hint">{{moneyHint(form.price)}}</small></label>
+      <label class="fld"><span>Chiết khấu (%)</span>
+        <input class="inp" v-model="form.discountPct" inputmode="decimal" placeholder="0">
+        <small class="hint">Tự điền theo CTV, sửa được</small></label>
+    </div>
+    <div v-if="netPreview()" class="net-box">
+      <span>Tiền công {{money(netPreview().price)}}<template v-if="netPreview().pct"> − chiết khấu {{netPreview().pct}}% ({{money(netPreview().cut)}})</template></span>
+      <b>CTV thực nhận: {{money(netPreview().net)}}</b>
+    </div>
+    <div class="fld"><span>Hạn chót <em class="tag">không bắt buộc</em></span>
+      <div class="chips">
+        <button v-for="c in DEADLINES" :key="c.k" type="button" class="chip" :class="{on: form.chip===c.k}" @click="quickDeadline(c)">{{c.t}}</button>
+        <button v-if="form.deadline" type="button" class="chip ghost" @click="form.deadline=''; form.chip=null">Không hạn</button>
+      </div>
+      <input class="inp" type="datetime-local" v-model="form.deadline" @input="form.chip=null">
+      <small class="hint" :class="{ok: form.deadline}">{{deadlineHint(form.deadline)}}</small>
+    </div>
+    <div v-if="form.err" class="alert err">{{form.err}}</div>
+    <div class="modal-f">
+      <button type="button" class="btn" @click="closeModal(false)">Huỷ</button>
+      <button class="btn primary" :disabled="form.busy"><ic n="send" s="16"></ic>{{S.modal.order ? 'Lưu thay đổi' : 'Gửi đơn cho CTV'}}</button>
+    </div>
+  </form>
+
+  <!-- chi tiết đơn + lịch sử -->
+  <div v-else-if="S.modal.kind==='orderDetail' && modalOrder" class="modal">
+    <div class="modal-hd"><h3>Đơn {{modalOrder.code}}</h3><button class="ibtn" @click="closeModal(false)"><ic n="x"></ic></button></div>
+    <order-card :order="modalOrder" mode="detail"></order-card>
+    <h4 class="sub">Lịch sử đơn</h4>
+    <div class="tl">
+      <div v-for="l in S.modal.logs" :key="l.id" class="tl-i" :class="LOG_TONE(l.action)">
+        <i class="tl-dot"><ic :n="LOG_ICON(l.action)" s="14"></ic></i>
+        <div class="tl-t"><div>{{logText(l)}}</div><small>{{fmtDT(l.at)}}</small></div>
+      </div>
+    </div>
+    <div class="modal-f"><button class="btn" @click="jumpToMsg(modalOrder.convId, modalOrder.msgId, null)"><ic n="chat" s="16"></ic>Mở trong đoạn chat</button></div>
+  </div>
+
+  <!-- tin nhắn mới -->
+  <div v-else-if="S.modal.kind==='newchat'" class="modal sm">
+    <div class="modal-hd"><h3>{{admin ? 'Nhắn riêng cho thành viên' : 'Nhắn riêng cho admin'}}</h3><button class="ibtn" @click="closeModal(false)"><ic n="x"></ic></button></div>
+    <p v-if="!admin" class="muted small">Chỉ admin mới nhắn riêng được. Muốn trao đổi với các thành viên khác, hãy nhắn trong nhóm.</p>
+    <label class="search"><ic n="search" s="16"></ic><input v-model="pickQ" placeholder="Tìm người…" autofocus></label>
+    <div class="pick">
+      <button v-for="u in pickList" :key="u.id" class="pick-i" @click="pickChat(u)">
+        <avatar :u="u" :size="40" dot></avatar><span>{{u.name}}</span><small v-if="u.role==='admin'" class="tag">Admin</small>
+      </button>
+      <div v-if="!pickList.length" class="empty small">Không có ai phù hợp</div>
+    </div>
+  </div>
+
+  <!-- tạo / sửa nhóm -->
+  <div v-else-if="S.modal.kind==='group'" class="modal sm">
+    <div class="modal-hd"><h3>{{groupForm.id ? 'Sửa nhóm' : 'Tạo nhóm'}}</h3><button class="ibtn" @click="closeModal(false)"><ic n="x"></ic></button></div>
+    <label class="fld"><span>Tên nhóm</span><input class="inp" v-model="groupForm.name" placeholder="Ví dụ: Team Genshin"></label>
+    <label class="search"><ic n="search" s="16"></ic><input v-model="pickQ" placeholder="Tìm thành viên…"></label>
+    <div class="pick">
+      <label v-for="u in pickList" :key="u.id" class="pick-i">
+        <input type="checkbox" :checked="groupForm.ids.includes(u.id)" @change="toggleId(u.id)" :disabled="groupForm.isMain && groupForm.ids.includes(u.id)">
+        <avatar :u="u" :size="34"></avatar><span>{{u.name}}</span>
+      </label>
+    </div>
+    <p v-if="groupForm.isMain" class="muted small">Nhóm chung: thành viên mới tự vào, không xoá người khỏi nhóm này được.</p>
+    <div class="modal-f"><button class="btn" @click="closeModal(false)">Huỷ</button><button class="btn primary" @click="saveGroup">{{groupForm.id ? 'Lưu' : 'Tạo nhóm'}} ({{groupForm.ids.length + 1}} người)</button></div>
+  </div>
+
+  <!-- mật khẩu mới -->
+  <div v-else-if="S.modal.kind==='password'" class="modal sm">
+    <h3>Mật khẩu mới của {{S.modal.user.name}}</h3>
+    <p class="muted">Gửi mật khẩu này cho thành viên. Họ nên đổi lại ở mục Tài khoản sau khi đăng nhập.</p>
+    <div class="pw-box"><code>{{S.modal.password}}</code><button class="btn sm" @click="copy(S.modal.password)"><ic n="copy" s="16"></ic>Chép</button></div>
+    <div class="modal-f"><button class="btn primary" @click="closeModal(true)">Xong</button></div>
+  </div>
+
+  <!-- sửa thông tin thành viên -->
+  <form v-else-if="S.modal.kind==='userEdit'" class="modal sm" @submit.prevent="saveUserEdit">
+    <h3>Thông tin thành viên</h3>
+    <div class="acc-hero">
+      <avatar :u="S.modal.user" :size="64"></avatar>
+      <div class="row wrap">
+        <label class="btn sm"><ic n="camera" s="15"></ic>{{S.modal.user.avatar ? 'Đổi ảnh' : 'Tải ảnh đại diện'}}<input type="file" hidden accept="image/*" @change="pickUserAvatar"></label>
+        <button v-if="S.modal.user.avatar" type="button" class="btn sm" @click="S.modal.user.avatar = null">Bỏ ảnh</button>
+      </div>
+    </div>
+    <label class="fld"><span>Tên hiển thị</span><input class="inp" v-model="S.modal.user.name" required minlength="2"></label>
+    <label class="fld"><span>Số điện thoại / Zalo</span><input class="inp" v-model="S.modal.user.phone"></label>
+    <div v-if="S.modal.user.role==='member'" class="fld"><span>Chiết khấu (%) — tự trừ vào tiền công mỗi đơn của CTV này</span>
+      <input class="inp" v-model="S.modal.user.discountPct" inputmode="decimal" placeholder="0">
+      <label v-if="Number(S.modal.user.discountPct) !== Number(S.modal.origPct)" class="switch"><input type="checkbox" v-model="S.modal.user.applyDiscount"><span>Áp luôn cho các đơn <b>chưa thanh toán</b> của CTV này (đơn đã thanh toán giữ nguyên)</span></label>
+    </div>
+    <div class="fld"><span>Ngân hàng nhận lương</span>
+      <select class="inp" v-model="S.modal.user.bankBin"><option value="">— Chưa chọn —</option><option v-for="b in S.banks" :key="b.bin" :value="b.bin">{{b.short}}</option></select></div>
+    <div class="grid2">
+      <label class="fld"><span>Số tài khoản</span><input class="inp" v-model="S.modal.user.bankAcc" inputmode="numeric"></label>
+      <label class="fld"><span>Tên chủ tài khoản</span><input class="inp" v-model="S.modal.user.bankHolder" placeholder="NGUYEN VAN A"></label>
+    </div>
+    <label class="fld"><span>Ghi chú (chỉ admin thấy)</span><textarea class="inp" rows="2" v-model="S.modal.user.note"></textarea></label>
+    <div class="modal-f"><button type="button" class="btn" @click="closeModal(false)">Huỷ</button><button class="btn primary">Lưu</button></div>
+  </form>
+
+  <!-- chi tiết kết toán -->
+  <div v-else-if="S.modal.kind==='settleDetail'" class="modal">
+    <div class="modal-hd"><h3>{{S.modal.settlement.code}} · {{S.modal.settlement.label}}</h3><button class="ibtn" @click="closeModal(false)"><ic n="x"></ic></button></div>
+    <p class="muted">{{uname(S.modal.settlement.userId)}} · {{S.modal.settlement.count}} đơn · thực nhận <b>{{money(S.modal.settlement.amount)}}</b>
+      <template v-if="S.modal.settlement.paidAt"> · đã thanh toán {{fmtDT(S.modal.settlement.paidAt)}}</template></p>
+    <table class="tbl click m-list">
+      <thead><tr><th>Mã</th><th>Nội dung</th><th class="r hide-m">Tiền công</th><th class="r hide-m">CK</th><th class="r">Thực nhận</th><th class="hide-m">Xong lúc</th></tr></thead>
+      <tbody>
+        <tr v-for="o in S.modal.orders" :key="o.id" @click="openOrderDetail(o.id)">
+          <td class="c-id"><b>{{o.code}}</b></td><td class="clip c-txt">{{o.content}}</td>
+          <td class="r num hide-m">{{money(o.price)}}</td><td class="r num hide-m muted">{{o.discountPct ? o.discountPct + '%' : '—'}}</td>
+          <td class="r num c-amt"><b>{{money(o.net)}}</b></td><td class="hide-m muted">{{fmtDT(o.doneAt)}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- xem ảnh lớn -->
+<div v-if="S.lightbox" class="lightbox" @click.self="S.lightbox=null">
+  <img :src="lbUrl" alt="">
+  <button class="lb-x ibtn" @click="S.lightbox=null"><ic n="x"></ic></button>
+  <template v-if="S.lightbox.list.length > 1">
+    <button class="lb-p ibtn" @click="lb(-1)"><ic n="chevl"></ic></button>
+    <button class="lb-n ibtn" @click="lb(1)"><ic n="chevr"></ic></button>
+    <div class="lb-c">{{S.lightbox.i + 1}} / {{S.lightbox.list.length}}</div>
+  </template>
+  <a class="lb-dl btn sm" :href="lbUrl" download target="_blank"><ic n="download" s="16"></ic>Tải ảnh</a>
+</div>
+
+<div class="toasts"><div v-for="t in S.toasts" :key="t.id" class="toast" :class="t.type"><ic v-if="t.icon" :n="t.icon" s="16"></ic>{{t.msg}}</div></div>
+<div v-if="S.busy" class="busy"><div class="spin"></div>{{S.busy}}</div>
+</script>
+
+<!-- ================================================================ THẺ ĐƠN HÀNG -->
+<script type="text/x-template" id="tpl-order">
+<div class="ocard" :class="'st-' + state">
+  <div class="oc-head">
+    <ic n="orders" s="18"></ic><b>Đơn {{o.code}}</b>
+    <span class="oc-badge">{{stateLabel}}</span>
+  </div>
+  <div class="oc-body">
+    <div class="oc-desc">
+      <div class="oc-box-h"><ic n="note" s="14"></ic>Nội dung đơn<button class="ibtn sm" title="Sao chép nội dung" @click="copy(o.content)"><ic n="copy" s="14"></ic></button></div>
+      <div class="oc-content"><template v-for="(p, i) in linkify(o.content)" :key="i"><a v-if="p.url" :href="p.v" target="_blank" rel="noopener noreferrer">{{p.v}}</a><template v-else>{{p.v}}</template></template></div>
+    </div>
+
+    <div v-if="cred && !o.deletedAt" class="oc-cred">
+      <div class="oc-box-h"><ic n="lock" s="14"></ic>Tài khoản đăng nhập</div>
+      <div v-if="cred.account" class="cred-row"><span title="Tài khoản"><ic n="user" s="15"></ic><i>Tài khoản</i></span><code>{{cred.account}}</code><button class="ibtn sm" title="Sao chép tài khoản" @click="copy(cred.account)"><ic n="copy" s="15"></ic></button></div>
+      <div v-if="cred.password" class="cred-row"><span title="Mật khẩu"><ic n="lock" s="15"></ic><i>Mật khẩu</i></span><code>{{showPw ? cred.password : '••••••••'}}</code>
+        <button class="ibtn sm" :title="showPw ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'" @click="showPw = !showPw"><ic :n="showPw ? 'eyeoff' : 'eye'" s="15"></ic></button>
+        <button class="ibtn sm" title="Sao chép mật khẩu" @click="copy(cred.password)"><ic n="copy" s="15"></ic></button></div>
+      <div v-if="cred.extra" class="cred-extra">{{cred.extra}}</div>
+    </div>
+    <div v-else-if="o.credPurgedAt && !o.deletedAt" class="oc-purged"><ic n="lock" s="13"></ic>Tài khoản/mật khẩu đã tự xoá lúc {{fmtDT(o.credPurgedAt)}} để bảo mật</div>
+
+    <div class="oc-meta">
+      <div v-if="o.discountPct"><span>Tiền công</span><b>{{money(o.price)}} <small class="muted">− {{o.discountPct}}%</small></b></div>
+      <div><span>{{o.discountPct ? 'Thực nhận' : 'Tiền công'}}</span><b class="oc-price">{{money(o.net)}}</b></div>
+      <div v-if="o.deadline"><span>Hạn chót</span><b :class="{over: overdue}">{{fmtDT(o.deadline)}}<template v-if="overdue"> · trễ hạn</template></b></div>
+      <div v-if="mode !== 'chat'"><span>CTV</span><b>{{assignee ? assignee.name : '#' + o.assigneeId}}</b></div>
+    </div>
+    <div v-if="o.proof.length" class="oc-proof">
+      <div v-for="u in o.proof" :key="u" class="oc-th" @click="view(u)">
+        <img :src="u" loading="lazy" alt="">
+        <button v-if="(mine && o.status==='open' && !o.deletedAt) || (admin && !o.deletedAt && !locked)" class="oc-thx" @click.stop="removeProof(u)" title="Xoá ảnh"><ic n="x" s="12"></ic></button>
+      </div>
+    </div>
+    <div v-if="o.proofPurged && !o.proof.length" class="oc-purged"><ic n="image" s="13"></ic>{{o.proofPurged}} ảnh bằng chứng đã tự xoá theo cài đặt</div>
+    <div v-if="o.note" class="oc-note"><ic n="note" s="14"></ic><span><b>Ghi chú:</b> {{o.note}}</span></div>
+    <div v-if="o.doneAt && !o.deletedAt" class="oc-done"><ic n="check" s="14"></ic><span>Hoàn thành {{fmtDT(o.doneAt)}} · {{settleText}}</span></div>
+    <div v-if="o.deletedAt" class="oc-del"><ic n="trash" s="14"></ic>Đơn đã bị xoá lúc {{fmtDT(o.deletedAt)}} — không tính tiền</div>
+  </div>
+
+  <!-- nút cho CTV: Done (bắt buộc ảnh), Ảnh, Ghi chú -->
+  <div v-if="mine && o.status==='open' && !o.deletedAt" class="oc-qr">
+    <button class="qr done" :disabled="!o.proof.length || busy" @click="done"><ic n="check" s="17"></ic>Done</button>
+    <button class="qr" :class="{need: !o.proof.length}" @click="pick" :disabled="busy"><ic n="camera" s="17"></ic>Ảnh<template v-if="o.proof.length"> ({{o.proof.length}})</template></button>
+    <button class="qr" @click="note"><ic n="note" s="17"></ic>Ghi chú</button>
+  </div>
+  <div v-if="mine && o.status==='open' && !o.deletedAt && !o.proof.length" class="oc-hint">Bắt buộc gửi ít nhất 1 ảnh, sau đó mới bấm được <b>Done</b>.</div>
+  <div v-if="mine && o.status==='done' && !o.paidAt && !o.deletedAt" class="oc-qr">
+    <button class="qr" @click="note"><ic n="note" s="17"></ic>{{o.note ? 'Sửa ghi chú' : 'Ghi chú'}}</button>
+  </div>
+
+  <!-- nút cho admin (đơn đã thanh toán thì khoá, không sửa được) -->
+  <div v-if="admin" class="oc-adm">
+    <template v-if="!o.deletedAt">
+      <button v-if="!locked" @click="edit"><ic n="edit" s="15"></ic>Sửa</button>
+      <button v-if="o.status==='done' && !locked" @click="reopen"><ic n="undo" s="15"></ic>Mở lại</button>
+      <button v-if="mode==='chat'" @click="history"><ic n="history" s="15"></ic>Lịch sử</button>
+      <button v-if="!locked" class="danger" @click="del"><ic n="trash" s="15"></ic>Xoá</button>
+      <span v-if="locked" class="oc-lock"><ic n="lock" s="14"></ic>Đã thanh toán — khoá</span>
+    </template>
+    <template v-else>
+      <button @click="restore"><ic n="restore" s="15"></ic>Khôi phục</button>
+      <button v-if="mode==='chat'" @click="history"><ic n="history" s="15"></ic>Lịch sử</button>
+    </template>
+  </div>
+  <div v-else-if="mine && mode==='chat'" class="oc-adm"><button @click="history"><ic n="history" s="15"></ic>Lịch sử đơn</button></div>
+  <input type="file" ref="file" hidden multiple accept="image/*" @change="onFiles">
+</div>
+</script>
+
+<!-- ================================================================ BIỂU ĐỒ -->
+<script type="text/x-template" id="tpl-chart">
+<div class="chart">
+  <svg :width="w" :height="H" role="img" aria-label="Biểu đồ tiền công">
+    <g class="grid">
+      <template v-for="t in ticks" :key="t">
+        <line :x1="pad.l" :x2="w - pad.r" :y1="y(t)" :y2="y(t)"></line>
+        <text :x="pad.l - 8" :y="y(t) + 4" text-anchor="end">{{compact(t)}}</text>
+      </template>
+    </g>
+    <g class="bars"><path v-for="b in bars" :key="b.i" :d="b.d" :class="{hov: hover===b.i}"></path></g>
+    <g class="xl"><text v-for="b in bars" :key="b.i" v-show="b.i % labelEvery === 0" :x="b.cx" :y="H - 8" text-anchor="middle" :class="{hov: hover===b.i}">{{b.short}}</text></g>
+    <g><rect v-for="b in bars" :key="b.i" :x="pad.l + b.i * slot" :y="pad.t" :width="slot" :height="H - pad.t - pad.b" fill="transparent" tabindex="0"
+             @pointerenter="hover=b.i" @pointerleave="hover=-1" @focus="hover=b.i" @blur="hover=-1"><title>{{b.label}}: {{money(b.total)}}</title></rect></g>
+  </svg>
+  <div v-if="tip" class="tip" :style="{left: tip.left + 'px', top: Math.max(0, tip.b.y - 62) + 'px'}"><b>{{money(tip.b.total)}}</b><span>{{tip.b.label}} · {{tip.b.count}} đơn</span></div>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: ĐƠN HÀNG -->
+<script type="text/x-template" id="tpl-orders">
+<div class="page">
+  <header class="page-h">
+    <h1>Đơn hàng</h1>
+    <div class="row">
+      <a class="btn" :href="csv" download><ic n="download" s="18"></ic><span class="hide-m">Xuất Excel</span></a>
+      <button v-if="admin" class="btn primary" @click="create"><ic n="plus" s="18"></ic>Lên đơn</button>
+    </div>
+  </header>
+  <div class="filters">
+    <div class="seg scroll"><button v-for="t in tabs" :key="t[0]" :class="{on: status===t[0]}" @click="status=t[0]">{{t[1]}}</button></div>
+    <select v-if="admin" class="sel" v-model="assignee"><option value="">Tất cả CTV</option><option v-for="u in members" :key="u.id" :value="String(u.id)">{{u.name}}</option></select>
+    <label class="search grow"><ic n="search" s="16"></ic><input v-model="q" placeholder="Tìm mã đơn (DH0012), nội dung, tên CTV…" @input="loadSoon"></label>
+  </div>
+  <div class="card" :class="{dim: loading}">
+    <div class="card-h"><b>{{rows.length}} đơn</b><small>Tổng thực nhận: {{money(total)}}</small></div>
+    <table class="tbl click m-list">
+      <thead><tr><th>Mã</th><th v-if="admin">CTV</th><th>Nội dung</th><th class="r hide-m">Tiền công</th><th class="r">Thực nhận</th><th>Trạng thái</th><th class="hide-m">Tạo lúc</th><th class="hide-m">Xong lúc</th></tr></thead>
+      <tbody>
+        <tr v-for="o in rows" :key="o.id" @click="open(o)">
+          <td class="c-id"><b>{{o.code}}</b></td>
+          <td v-if="admin" class="c-who">{{uname(o.assigneeId)}}</td>
+          <td class="clip c-txt">{{o.content}}</td>
+          <td class="r num hide-m muted">{{money(o.price)}}<template v-if="o.discountPct"> −{{o.discountPct}}%</template></td>
+          <td class="r num c-amt"><b>{{money(o.net)}}</b></td>
+          <td class="c-st"><span class="pill" :class="'st-' + stateOf(o)">{{stateLabel(o)}}</span></td>
+          <td class="hide-m muted">{{fmtDT(o.createdAt)}}</td>
+          <td class="hide-m muted">{{fmtDT(o.doneAt)}}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div v-if="!rows.length && !loading" class="empty">Không có đơn nào</div>
+  </div>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: DOANH THU -->
+<script type="text/x-template" id="tpl-revenue">
+<div class="page">
+  <header class="page-h">
+    <h1>Doanh thu</h1>
+    <div class="row">
+      <button class="btn" @click="toSettle"><ic n="money" s="18"></ic><span class="hide-m">Kết toán lương</span></button>
+      <a class="btn" :href="csv" download><ic n="download" s="18"></ic><span class="hide-m">Xuất Excel</span></a>
+    </div>
+  </header>
+  <div class="filters">
+    <div class="seg"><button v-for="p in [['week','Tuần'],['month','Tháng'],['year','Năm']]" :key="p[0]" :class="{on: period===p[0]}" @click="period=p[0]">{{p[1]}}</button></div>
+    <div class="pnav">
+      <button class="ibtn" @click="nav(-1)" title="Kỳ trước"><ic n="chevl"></ic></button>
+      <b>{{d ? d.label : '…'}}</b>
+      <button class="ibtn" @click="nav(1)" title="Kỳ sau"><ic n="chevr"></ic></button>
+      <button v-if="d && !d.isCurrent" class="btn sm" @click="nav(0)">Về hiện tại</button>
+    </div>
+    <select v-if="admin" class="sel" v-model="userId"><option value="">Tất cả CTV</option><option v-for="u in members" :key="u.id" :value="String(u.id)">{{u.name}}</option></select>
+  </div>
+  <template v-if="d">
+    <div :class="{dim: loading}">
+      <div class="tiles">
+        <div class="tile hero">
+          <span>{{d.userId ? 'Thực nhận của ' + uname(d.userId) : admin ? 'Tổng thực nhận của CTV' : 'Bạn thực nhận'}}</span>
+          <b>{{money(d.totals.total)}}</b>
+          <small class="muted">Tiền công {{money(d.totals.gross)}}<template v-if="d.totals.discount"> − chiết khấu {{money(d.totals.discount)}}</template></small>
+          <small v-if="delta" :class="delta.up ? 'up' : 'down'"><ic :n="delta.up ? 'up' : 'down'" s="14"></ic>{{delta.text}}</small>
+        </div>
+        <div class="tile"><span>Đơn hoàn thành</span><b>{{d.totals.count}}</b><small>đã bấm Done trong kỳ</small></div>
+        <div class="tile pending"><span>Đang làm · chưa tính tiền</span><b>{{money(d.open.total)}}</b><small>{{d.open.count}} đơn admin đã giao, chờ CTV bấm Done</small></div>
+        <div class="tile"><span>Đã thanh toán</span><b>{{money(d.totals.paid)}}</b><small>qua kết toán lương</small></div>
+        <div class="tile"><span>Chưa thanh toán</span><b>{{money(d.totals.unpaid)}}</b><small>Chờ thanh toán {{money(d.totals.pending)}} · chưa kết toán {{money(d.totals.unsettled)}}</small></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><b>{{chartTitle}}</b><small>{{d.label}} · thực nhận, chỉ tính đơn CTV đã bấm Done</small></div>
+        <rev-chart :series="d.series"></rev-chart>
+      </div>
+      <div v-if="d.byUser" class="card">
+        <div class="card-h"><b>Theo từng CTV</b><small>Bấm vào tên để xem riêng</small></div>
+        <table class="tbl m-list">
+          <thead><tr><th>CTV</th><th class="r">CK</th><th class="r">Đơn xong</th><th class="r hide-m">Tiền công</th><th class="r">Thực nhận</th><th class="r">Đã TT</th><th class="r">Chưa TT</th><th class="r hide-m">Đang làm</th></tr></thead>
+          <tbody>
+            <tr v-for="r in d.byUser" :key="r.userId">
+              <td class="c-main"><a class="lnk" @click="userId = String(r.userId)">{{uname(r.userId)}}</a></td>
+              <td class="r num muted c-x" data-l="CK">{{r.discountPct ? r.discountPct + '%' : '—'}}</td>
+              <td class="r num c-x" data-l="Đơn xong">{{r.count}}</td>
+              <td class="r num hide-m muted">{{money(r.gross)}}</td>
+              <td class="r num c-amt"><b>{{money(r.total)}}</b></td>
+              <td class="r num muted c-x" data-l="Đã TT">{{money(r.paid)}}</td>
+              <td class="r num c-x" data-l="Chưa TT">{{money(r.unpaid)}}</td>
+              <td class="r num hide-m muted">{{r.openCount ? r.openCount + ' đơn · ' + money(r.openTotal) : '—'}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-h"><b>Đơn đang làm</b><span class="tag warn">chưa tính tiền</span><small>{{openOrders.length}} đơn · thực nhận dự kiến {{money(d.open.total)}} — tính khi CTV gửi ảnh + bấm Done</small></div>
+        <table class="tbl click m-list">
+          <thead><tr><th>Mã</th><th v-if="admin && !d.userId">CTV</th><th>Nội dung</th><th class="r">Thực nhận</th><th class="hide-m">Giao lúc</th><th>Hạn chót</th></tr></thead>
+          <tbody>
+            <tr v-for="o in openOrders" :key="o.id" @click="openOrder(o)">
+              <td class="c-id"><b>{{o.code}}</b></td>
+              <td v-if="admin && !d.userId" class="c-who">{{uname(o.assigneeId)}}</td>
+              <td class="clip c-txt">{{o.content}}</td>
+              <td class="r num c-amt"><b>{{money(o.net)}}</b></td>
+              <td class="hide-m muted">{{fmtDT(o.createdAt)}}</td>
+              <td class="c-st"><span v-if="o.deadline" :class="overdue(o) ? 'pill st-over' : 'muted'">{{fmtDT(o.deadline)}}{{overdue(o) ? ' · trễ' : ''}}</span><span v-else class="muted">—</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!openOrders.length" class="empty small">Không có đơn nào đang làm</div>
+      </div>
+      <div class="card">
+        <div class="card-h"><b>Đơn hoàn thành trong kỳ</b><small>{{d.totals.count}} đơn</small></div>
+        <table class="tbl click m-list">
+          <thead><tr><th>Mã</th><th v-if="admin && !d.userId">CTV</th><th>Nội dung</th><th class="r hide-m">Tiền công</th><th class="r">Thực nhận</th><th class="hide-m">Xong lúc</th><th>Thanh toán</th></tr></thead>
+          <tbody>
+            <tr v-for="o in orders" :key="o.id" @click="openOrder(o)">
+              <td class="c-id"><b>{{o.code}}</b></td>
+              <td v-if="admin && !d.userId" class="c-who">{{uname(o.assigneeId)}}</td>
+              <td class="clip c-txt">{{o.content}}</td>
+              <td class="r num hide-m muted">{{money(o.price)}}<template v-if="o.discountPct"> −{{o.discountPct}}%</template></td>
+              <td class="r num c-amt"><b>{{money(o.net)}}</b></td>
+              <td class="hide-m muted">{{fmtDT(o.doneAt)}}</td>
+              <td class="c-st"><span class="pill" :class="o.paidAt ? 'st-paid' : o.settlementId ? 'st-open' : 'st-done'">{{o.paidAt ? 'Đã TT · ' + o.settlementCode : o.settlementId ? 'Chờ TT · ' + o.settlementCode : 'Chưa kết toán'}}</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!orders.length" class="empty">Chưa có đơn hoàn thành trong kỳ này</div>
+      </div>
+    </div>
+  </template>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: KẾT TOÁN -->
+<script type="text/x-template" id="tpl-settle">
+<div class="page">
+  <header class="page-h">
+    <h1>Kết toán lương</h1>
+    <button v-if="admin && d && d.unsettled.length" class="btn primary" @click="settleNow()"><ic n="money" s="18"></ic>Kết toán ngay</button>
+  </header>
+  <p class="muted page-sub">
+    Hệ thống <b>tự kết toán vào 00:00 ngày 1 hằng tháng</b> cho tháng trước<template v-if="d"> (lần tới: 00:00 ngày {{d.nextAutoDay}}, chốt {{d.nextAutoLabel.toLowerCase()}})</template>.
+    <template v-if="admin">Admin có thể bấm <b>Kết toán ngay</b> bất cứ lúc nào. Quét mã QR để chuyển khoản, rồi bấm <b>Đã thanh toán</b> — CTV sẽ được báo ngay.</template>
+    <template v-else>Khi admin chuyển khoản và bấm “Đã thanh toán”, bạn sẽ nhận được thông báo.</template>
+  </p>
+  <div class="filters" v-if="admin">
+    <select class="sel" v-model="userId"><option value="">Tất cả CTV</option><option v-for="u in members" :key="u.id" :value="String(u.id)">{{u.name}}</option></select>
+  </div>
+
+  <div v-if="!admin && !myBank" class="card warn-card">
+    <div class="row wrap"><ic n="info" s="20"></ic><b class="grow">Bạn chưa nhập tài khoản ngân hàng nhận lương</b>
+      <button class="btn primary sm" @click="goAccount">Nhập ngay</button></div>
+  </div>
+
+  <template v-if="d">
+    <div class="tiles" :class="{dim: loading}">
+      <div class="tile"><span>Chưa kết toán</span><b>{{money(unsettledTotal)}}</b><small>đơn đã xong, chờ tới kỳ kết toán</small></div>
+      <div class="tile pending"><span>Chờ thanh toán</span><b>{{money(pendingTotal)}}</b><small>{{d.pending.length}} kết toán</small></div>
+      <div class="tile"><span>Đã thanh toán (gần đây)</span><b>{{money(paidTotal)}}</b><small>{{d.paid.length}} lần</small></div>
+    </div>
+
+    <!-- chờ thanh toán -->
+    <div class="card" :class="{dim: loading}">
+      <div class="card-h"><b>Chờ thanh toán ({{d.pending.length}})</b><small v-if="admin">Quét QR bằng app ngân hàng — luôn kiểm tra tên người nhận trước khi chuyển</small></div>
+      <div v-for="st in d.pending" :key="st.id" class="st-card">
+        <div class="st-top">
+          <avatar :u="st.userId" :size="40"></avatar>
+          <div class="grow"><b>{{uname(st.userId)}}</b><small>{{st.code}} · {{st.label}} <span v-if="st.auto" class="tag">tự động</span></small></div>
+          <div class="st-amt"><b>{{money(st.amount)}}</b><small>{{st.count}} đơn</small></div>
+        </div>
+        <div v-if="admin" class="st-pay">
+          <div v-if="st.qr" class="qr-box" v-html="qrSvg(st.qr)"></div>
+          <div v-else class="qr-box empty-qr"><ic n="info" s="22"></ic><span>Chưa có STK</span></div>
+          <div class="st-bank">
+            <template v-if="st.bank">
+              <div class="kv"><span>Ngân hàng</span><b>{{st.bank.short}}</b></div>
+              <div class="kv"><span>Số tài khoản</span><b>{{st.bank.account}} <button class="ibtn sm" title="Sao chép STK" @click="copy(st.bank.account)"><ic n="copy" s="14"></ic></button></b></div>
+              <div class="kv"><span>Chủ tài khoản</span><b>{{st.bank.holder || '—'}}</b></div>
+              <div class="kv"><span>Số tiền</span><b>{{money(st.amount)}} <button class="ibtn sm" title="Sao chép số tiền" @click="copy(String(st.amount))"><ic n="copy" s="14"></ic></button></b></div>
+              <div class="kv"><span>Nội dung</span><b>{{st.memo}} <button class="ibtn sm" title="Sao chép nội dung" @click="copy(st.memo)"><ic n="copy" s="14"></ic></button></b></div>
+            </template>
+            <div v-else class="alert warn">CTV chưa nhập số tài khoản. Nhắc CTV vào <b>Tài khoản</b> để thêm, hoặc admin nhập giúp ở trang Thành viên.
+              <button class="btn sm mt" @click="chat(st.userId)"><ic n="chat" s="15"></ic>Nhắn tin</button></div>
+          </div>
+        </div>
+        <div v-else class="st-member muted small">Đã kết toán {{fmtDT(st.createdAt)}} — chờ admin chuyển khoản<template v-if="st.bank"> vào {{bankLabel(st.bank)}}</template>.</div>
+        <div class="st-actions">
+          <button class="btn sm" @click="view(st)">Xem {{st.count}} đơn</button>
+          <template v-if="admin">
+            <button class="btn sm danger" @click="cancel(st)">Huỷ kết toán</button>
+            <div class="grow"></div>
+            <button class="btn primary" @click="pay(st)"><ic n="check" s="16"></ic>Đã thanh toán</button>
+          </template>
+        </div>
+      </div>
+      <div v-if="!d.pending.length" class="empty small">Không có kết toán nào đang chờ thanh toán</div>
+    </div>
+
+    <!-- chưa kết toán -->
+    <div class="card" :class="{dim: loading}">
+      <div class="card-h"><b>Chưa kết toán</b><small>Đơn đã bấm Done nhưng chưa gom vào kết toán nào</small></div>
+      <table class="tbl m-list">
+        <thead><tr><th>CTV</th><th class="r">Đơn</th><th class="r">Thực nhận</th><th>Ngân hàng</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="r in d.unsettled" :key="r.userId">
+            <td class="c-main"><b>{{uname(r.userId)}}</b></td>
+            <td class="r num c-x" data-l="Số đơn">{{r.count}}</td>
+            <td class="r num c-amt"><b>{{money(r.net)}}</b></td>
+            <td class="c-x"><span v-if="r.bank" class="muted">{{bankLabel(r.bank)}}</span><span v-else class="tag warn">chưa có STK</span></td>
+            <td class="r c-act"><button v-if="admin" class="btn sm" @click="settleNow([r])">Kết toán ngay</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!d.unsettled.length" class="empty small">Không có đơn nào chưa kết toán</div>
+    </div>
+
+    <!-- đã thanh toán -->
+    <div class="card" :class="{dim: loading}">
+      <div class="card-h"><b>Đã thanh toán</b><small>Lịch sử trả lương</small></div>
+      <table class="tbl click m-list">
+        <thead><tr><th>Mã</th><th v-if="admin">CTV</th><th>Kỳ</th><th class="r">Đơn</th><th class="r">Số tiền</th><th>Thanh toán lúc</th><th v-if="admin"></th></tr></thead>
+        <tbody>
+          <tr v-for="st in d.paid" :key="st.id" @click="view(st)">
+            <td class="c-id"><b>{{st.code}}</b></td>
+            <td v-if="admin" class="c-who">{{uname(st.userId)}}</td>
+            <td class="c-txt">{{st.label}}</td>
+            <td class="r num c-x" data-l="Số đơn">{{st.count}}</td>
+            <td class="r num c-amt"><b>{{money(st.amount)}}</b></td>
+            <td class="muted c-st">{{fmtDT(st.paidAt)}}</td>
+            <td v-if="admin" class="r c-act"><button class="btn sm" @click.stop="unpay(st)" title="Chỉ dùng khi bấm nhầm">Huỷ TT</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!d.paid.length" class="empty small">Chưa có lần thanh toán nào</div>
+    </div>
+  </template>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: LỊCH SỬ -->
+<script type="text/x-template" id="tpl-history">
+<div class="page">
+  <header class="page-h"><h1>Lịch sử</h1></header>
+  <p class="muted page-sub">{{admin ? 'Mọi thao tác: tạo / sửa / xoá đơn, CTV gửi ảnh, bấm Done, thanh toán, duyệt thành viên, sao lưu…' : 'Lịch sử các đơn của bạn và tài khoản của bạn.'}}</p>
+  <div class="filters">
+    <select v-if="admin" class="sel" v-model="userId"><option value="">Tất cả mọi người</option><option v-for="u in people" :key="u.id" :value="String(u.id)">{{u.name}}</option></select>
+    <select class="sel" v-model="action">
+      <option value="">Mọi thao tác</option><option value="order.create">Tạo đơn</option><option value="order.edit">Sửa đơn</option>
+      <option value="order.done">Bấm Done</option><option value="order.proof">Gửi ảnh</option><option value="order.note">Ghi chú</option>
+      <option value="settlement">Kết toán / thanh toán</option><option value="order.delete">Xoá đơn</option><option value="order.reopen">Mở lại đơn</option>
+      <option value="user">Thành viên</option><option v-if="admin" value="backup">Sao lưu</option><option v-if="admin" value="data">Tự xoá dữ liệu</option>
+    </select>
+    <label class="search grow"><ic n="search" s="16"></ic><input v-model="q" placeholder="Mã đơn, ví dụ DH0012" @keydown.enter="load()"></label>
+    <button class="btn" @click="load()">Lọc</button>
+  </div>
+  <div class="card" :class="{dim: loading}">
+    <div v-for="g in groups" :key="g.k" class="tl-g">
+      <div class="tl-day">{{g.k}}</div>
+      <div class="tl">
+        <div v-for="l in g.items" :key="l.id" class="tl-i" :class="[LOG_TONE(l.action), {click: l.orderId}]" @click="open(l)">
+          <i class="tl-dot"><ic :n="LOG_ICON(l.action)" s="14"></ic></i>
+          <div class="tl-t"><div>{{logText(l)}}</div><small>{{fmtTime(l.at)}}</small></div>
+        </div>
+      </div>
+    </div>
+    <div v-if="!logs.length && !loading" class="empty">Chưa có lịch sử</div>
+    <button v-if="more" class="btn block mt" @click="load(true)">Xem cũ hơn</button>
+  </div>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: THÀNH VIÊN -->
+<script type="text/x-template" id="tpl-members">
+<div class="page">
+  <header class="page-h"><h1>Thành viên</h1></header>
+  <div v-if="pending.length" class="card warn-card">
+    <div class="card-h"><b>Chờ duyệt ({{pending.length}})</b><small>Chỉ người được duyệt mới vào được app</small></div>
+    <div v-for="u in pending" :key="u.id" class="req">
+      <avatar :u="u" :size="44"></avatar>
+      <div class="grow"><b>{{u.name}}</b><small>{{u.email}} · đăng ký {{agoText(u.createdAt)}}</small></div>
+      <button class="btn" @click="reject(u)">Từ chối</button>
+      <button class="btn primary" @click="approve(u)"><ic n="check" s="16"></ic>Duyệt</button>
+    </div>
+  </div>
+  <div class="card" :class="{dim: loading}">
+    <div class="card-h"><b>{{rows.length}} thành viên</b><label class="search sm"><ic n="search" s="15"></ic><input v-model="q" placeholder="Tìm tên, gmail…"></label></div>
+    <div v-for="u in rows" :key="u.id" class="mem" :class="'s-' + u.status">
+      <avatar :u="u" :size="44" dot></avatar>
+      <div class="grow">
+        <b>{{u.name}} <span v-if="u.isOwner" class="tag ac">Admin gốc</span><span v-else-if="u.role==='admin'" class="tag ac">Admin</span><span v-if="u.status!=='active'" class="tag err">{{statusLabel(u)}}</span></b>
+        <small>{{u.email}}<template v-if="u.phone"> · {{u.phone}}</template> · tham gia {{fmtDay(u.approvedAt || u.createdAt)}}</small>
+        <small v-if="u.role==='member'">Đang làm {{u.openCount}} đơn · chưa thanh toán {{money(u.unpaid)}}
+          · <span class="tag ac" title="Chiết khấu">CK {{u.discountPct || 0}}%</span>
+          <span v-if="u.bank" class="tag">{{u.bank.short}} · {{u.bank.account}}</span><span v-else class="tag warn">chưa có STK</span></small>
+      </div>
+      <div class="mem-a">
+        <button v-if="u.id !== S.me.id && u.status==='active'" class="ibtn" title="Nhắn tin" @click="chat(u)"><ic n="chat" s="18"></ic></button>
+        <button v-if="u.role==='member'" class="ibtn" title="Doanh thu" @click="revenue(u)"><ic n="chart" s="18"></ic></button>
+        <button class="ibtn" title="Sửa thông tin" @click="edit(u)"><ic n="edit" s="18"></ic></button>
+        <template v-if="!u.isOwner && u.id !== S.me.id">
+          <button class="ibtn" title="Đặt lại mật khẩu" @click="resetPw(u)"><ic n="lock" s="18"></ic></button>
+          <button v-if="owner && u.status==='active'" class="ibtn" :title="u.role==='admin' ? 'Thu quyền admin' : 'Cấp quyền admin'" @click="role(u)"><ic n="shield" s="18"></ic></button>
+          <button v-if="u.status==='active'" class="btn sm" @click="lock(u)">Khoá</button>
+          <button v-else-if="u.status==='locked'" class="btn sm" @click="unlock(u)">Mở khoá</button>
+          <button v-else-if="u.status==='rejected'" class="btn sm" @click="approve(u)">Duyệt lại</button>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+</script>
+
+<!-- ================================================================ TÌM KIẾM -->
+<script type="text/x-template" id="tpl-search">
+<div class="srch-back" @pointerdown.self="close">
+  <div class="srch">
+    <div class="srch-h">
+      <button class="ibtn" @click="close" title="Đóng (Esc)"><ic n="back"></ic></button>
+      <label class="search grow"><ic n="search" s="16"></ic>
+        <input ref="inp" v-model="q" :placeholder="placeholder" enterkeyhint="search" autocomplete="off" spellcheck="false" @keydown.enter="load()">
+        <button v-if="q" class="ibtn sm" @click="q = ''; $refs.inp.focus()" title="Xoá chữ"><ic n="x" s="14"></ic></button></label>
+    </div>
+    <div v-if="scopeConv" class="srch-scope"><span>Chỉ tìm trong đoạn chat với <b>{{convTitle(scopeConv)}}</b></span><button class="btn sm" @click="S.search.convId = null">Tìm mọi nơi</button></div>
+    <div class="srch-tabs"><button v-for="t in tabs" :key="t[0]" class="chip" :class="{on: tab===t[0]}" @click="tab = t[0]">{{t[1]}}</button></div>
+    <div class="srch-body" :class="{dim: loading}">
+      <div v-if="!ready" class="srch-hint">
+        <ic n="search" s="28"></ic>
+        <p>Gõ ít nhất 2 ký tự. Có dấu hay không dấu đều được.</p>
+        <p class="muted small">Tìm được: tin nhắn{{admin ? '' : ' của bạn'}}, nội dung đơn, ghi chú, <b>tài khoản / mật khẩu</b>, mã đơn (DH0012), mã kết toán (KT0003){{admin ? ', tên / email / SĐT / số tài khoản thành viên' : ''}}.</p>
+      </div>
+      <template v-else>
+        <div v-if="err" class="alert err">{{err}}</div>
+        <section v-if="convHits.length">
+          <h5>Đoạn chat</h5>
+          <button v-for="c in convHits" :key="c.id" class="srch-i" @click="goConv(c)">
+            <avatar :u="c.partnerId" :group="c.type==='group'" :size="36"></avatar>
+            <div class="grow"><b><hl :t="convTitle(c)" :terms="terms"></hl></b><small>{{c.type === 'group' ? 'Nhóm' : 'Tin nhắn riêng'}}</small></div>
+          </button>
+        </section>
+        <section v-if="r && show('msg') && r.messages.length">
+          <h5>Tin nhắn <a v-if="tab==='all' && r.more.messages" @click="tab = 'msg'">Xem tất cả</a></h5>
+          <button v-for="m in r.messages" :key="m.id" class="srch-i" @click="goMsg(m)">
+            <avatar :u="m.senderId" :size="36"></avatar>
+            <div class="grow">
+              <div class="srch-meta"><b>{{m.senderId === S.me.id ? 'Bạn' : uname(m.senderId)}}</b><span v-if="!scopeConv"> · {{convTitle(convById(m.convId))}}</span><time>{{fmtDT(m.createdAt)}}</time></div>
+              <div class="srch-snip"><hl :t="m.text" :terms="terms" :snip="110"></hl></div>
+            </div>
+          </button>
+          <button v-if="tab==='msg' && r.more.messages" class="btn block mt" :disabled="loading" @click="load('msg')">Xem thêm tin nhắn cũ hơn</button>
+        </section>
+        <section v-if="r && (show('order') || tab==='cred') && r.orders.length">
+          <h5>{{tab==='cred' ? 'Đơn có tài khoản / mật khẩu khớp' : 'Đơn hàng'}} <a v-if="tab==='all' && r.more.orders" @click="tab = 'order'">Xem tất cả</a></h5>
+          <button v-for="o in r.orders" :key="o.id" class="srch-i" @click="goOrder(o)">
+            <span class="srch-ic" :class="'st-' + stateOf(o)"><ic n="orders" s="18"></ic></span>
+            <div class="grow">
+              <div class="srch-meta"><b><hl :t="o.code" :terms="terms"></hl></b><span class="pill" :class="'st-' + stateOf(o)">{{stateLabel(o)}}</span><span v-if="admin"> · <hl :t="uname(o.assigneeId)" :terms="terms"></hl></span><time>{{fmtDT(o.createdAt)}}</time></div>
+              <div class="srch-snip"><hl :t="o.content" :terms="terms" :snip="110"></hl></div>
+              <div v-if="noteHit(o)" class="srch-snip small">Ghi chú: <hl :t="noteHit(o)" :terms="terms" :snip="80"></hl></div>
+              <div v-if="credHit(o)" class="srch-cred"><ic n="lock" s="12"></ic> <b>{{credHit(o).label}}:</b> <hl v-if="credHit(o).text" :t="credHit(o).text" :terms="terms" :snip="60"></hl><i v-else>•••••• (khớp)</i></div>
+            </div>
+            <b class="srch-amt">{{money(o.net)}}</b>
+          </button>
+          <button v-if="tab!=='all' && r.more.orders" class="btn block mt" :disabled="loading" @click="load('order')">Xem thêm đơn</button>
+        </section>
+        <section v-if="r && show('user') && r.users.length">
+          <h5>Thành viên</h5>
+          <button v-for="u in r.users" :key="u.id" class="srch-i" @click="goUser(u)">
+            <avatar :u="u" :size="36"></avatar>
+            <div class="grow">
+              <b><hl :t="u.name" :terms="terms"></hl></b>
+              <small><hl :t="u.email" :terms="terms"></hl><template v-if="u.phone"> · <hl :t="u.phone" :terms="terms"></hl></template><template v-if="u.bank"> · {{u.bank.short}} <hl :t="u.bank.account" :terms="terms"></hl></template></small>
+            </div>
+          </button>
+        </section>
+        <section v-if="r && show('settle') && r.settlements.length">
+          <h5>Kết toán</h5>
+          <button v-for="st in r.settlements" :key="st.id" class="srch-i" @click="goSettle(st)">
+            <span class="srch-ic" :class="st.status === 'paid' ? 'st-paid' : 'st-open'"><ic n="money" s="18"></ic></span>
+            <div class="grow">
+              <div class="srch-meta"><b><hl :t="st.code" :terms="terms"></hl></b><span class="pill" :class="st.status === 'paid' ? 'st-paid' : 'st-open'">{{st.status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'}}</span><span v-if="admin"> · <hl :t="uname(st.userId)" :terms="terms"></hl></span></div>
+              <div class="srch-snip">{{st.label}} · {{st.count}} đơn</div>
+            </div>
+            <b class="srch-amt">{{money(st.amount)}}</b>
+          </button>
+        </section>
+        <div v-if="loading && !r" class="srch-hint">Đang tìm…</div>
+        <div v-if="empty" class="srch-hint"><p>Không tìm thấy “{{q}}”{{tab !== 'all' ? ' trong mục này' : ''}}.</p><button v-if="tab !== 'all'" class="btn sm" @click="tab = 'all'">Tìm ở tất cả</button></div>
+      </template>
+    </div>
+  </div>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: CÀI ĐẶT -->
+<script type="text/x-template" id="tpl-settings">
+<div class="page">
+  <header class="page-h"><h1>Cài đặt</h1></header>
+  <template v-if="s">
+    <div class="card">
+      <div class="card-h"><b>Chung</b></div>
+      <label class="fld"><span>Tên ứng dụng</span><input class="inp" v-model="s.appName"></label>
+      <label class="switch"><input type="checkbox" v-model="s.gmailOnly"><span>Chỉ cho đăng ký bằng Gmail (@gmail.com)</span></label>
+      <p class="muted small">Nhắn riêng: chỉ admin nhắn riêng được với từng thành viên (mỗi CTV có sẵn một đoạn chat riêng với admin để nhận đơn). Thành viên không nhắn riêng được với nhau, chỉ nhắn với admin hoặc trong nhóm.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><b>Sao lưu tự động</b><small v-if="s.backup.lastAt">Lần gần nhất: {{agoText(s.backup.lastAt)}}</small></div>
+      <div class="bk-status" :class="{err: s.backup.lastError}">
+        <ic :n="s.backup.lastError ? 'info' : 'shield'" s="22"></ic>
+        <div>
+          <b v-if="!s.backup.lastError">Dữ liệu đang được bảo vệ</b><b v-else>Có lỗi sao lưu</b>
+          <small v-if="!s.backup.lastError">Mọi thay đổi được ghi ngay xuống ổ đĩa. Ngoài ra còn {{s.backup.count}} bản sao lưu ({{fmtSize(s.backup.totalSize)}}). Dữ liệu hiện tại: {{fmtSize(s.backup.dbSize)}}.</small>
+          <small v-else>{{s.backup.lastError}}</small>
+        </div>
+      </div>
+      <div class="grid3">
+        <label class="fld"><span>Sao lưu mỗi</span>
+          <select class="inp" v-model.number="s.backupHours"><option :value="0.5">30 phút</option><option :value="1">1 giờ</option><option :value="2">2 giờ</option><option :value="3">3 giờ</option><option :value="6">6 giờ</option><option :value="12">12 giờ</option><option :value="24">24 giờ</option></select></label>
+        <label class="fld"><span>Giữ bản tự động gần nhất</span><input class="inp" type="number" min="5" max="1000" v-model.number="s.backupKeep"></label>
+        <label class="fld"><span>Giữ bản hằng ngày (ngày)</span><input class="inp" type="number" min="7" max="3650" v-model.number="s.backupKeepDaily"></label>
+      </div>
+      <label class="fld"><span>Thư mục sao lưu phụ (khuyên dùng) — ví dụ thư mục Google Drive / OneDrive / ổ USB</span>
+        <input class="inp" v-model="s.backupDir2" placeholder="Ví dụ: G:\My Drive\CTV-SaoLuu   hoặc   D:\SaoLuu">
+        <small class="hint">Mỗi bản sao lưu và toàn bộ ảnh sẽ được chép thêm sang đây. Nếu máy hỏng ổ cứng, dữ liệu vẫn còn ở nơi khác.</small></label>
+      <div class="muted small">Thư mục dữ liệu: <code>{{s.backup.dataDir}}</code></div>
+      <div class="row mt wrap">
+        <button class="btn primary" :disabled="saving" @click="save"><ic n="check" s="16"></ic>Lưu cài đặt</button>
+        <button class="btn" @click="backupNow"><ic n="db" s="16"></ic>Sao lưu ngay</button>
+        <a class="btn" href="/api/export.json" download><ic n="download" s="16"></ic>Tải toàn bộ dữ liệu (JSON)</a>
+        <label class="btn"><ic n="upload" s="16"></ic>Khôi phục từ file .sqlite<input type="file" hidden accept=".sqlite" @change="restoreFile"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><b>Tự động xoá dữ liệu cũ</b><small>Giảm dung lượng và bảo mật thông tin khách. Bật mục nào thì app tự xoá mục đó (kiểm tra mỗi giờ).</small></div>
+      <div class="pg">
+        <div class="pg-row">
+          <label class="switch"><input type="checkbox" v-model="s.purge.img.on"><span><b>Tự xoá ảnh</b></span></label>
+          <span class="pg-n"><span class="pg-after">sau</span><input class="inp pg-days" type="number" min="1" max="3650" v-model.number="s.purge.img.days" :disabled="!s.purge.img.on"><span class="pg-after">ngày</span></span>
+        </div>
+        <p class="hint">Ảnh gửi trong tin nhắn (tính từ lúc gửi) và ảnh bằng chứng của đơn (tính từ lúc đơn hoàn thành), kể cả ảnh rác tải lên mà không gửi. Ảnh đại diện không bị xoá. Tin nhắn vẫn còn, chỉ hiện “ảnh đã tự xoá”.</p>
+      </div>
+      <div class="pg">
+        <div class="pg-row">
+          <label class="switch"><input type="checkbox" v-model="s.purge.cred.on"><span><b>Tự xoá tài khoản / mật khẩu</b> trong đơn</span></label>
+          <span class="pg-n"><span class="pg-after">sau</span><input class="inp pg-days" type="number" min="0" max="3650" v-model.number="s.purge.cred.days" :disabled="!s.purge.cred.on"><span class="pg-after">ngày</span></span>
+        </div>
+        <p class="hint">Tính từ lúc CTV bấm Done. Đặt <b>0</b> = xoá ngay khi CTV bấm Done. Đơn đang làm không bị xoá. Cần lại thì admin bấm Sửa đơn và nhập lại.</p>
+      </div>
+      <div class="pg">
+        <div class="pg-row">
+          <label class="switch"><input type="checkbox" v-model="s.purge.order.on"><span><b>Tự xoá đơn</b> đã thanh toán</span></label>
+          <span class="pg-n"><span class="pg-after">sau</span><input class="inp pg-days" type="number" min="7" max="3650" v-model.number="s.purge.order.days" :disabled="!s.purge.order.on"><span class="pg-after">ngày</span></span>
+        </div>
+        <p class="hint">Chỉ xoá đơn <b>đã thanh toán</b> (tính từ lúc thanh toán) và đơn trong <b>thùng rác</b> (tính từ lúc xoá). Đơn đang làm hoặc chưa thanh toán <b>không bao giờ</b> bị xoá. Xoá hẳn thẻ đơn trong chat, ảnh và lịch sử của đơn. Tổng tiền các lần kết toán đã trả vẫn giữ, nhưng trang Doanh thu sẽ không còn chi tiết các đơn này. App tự sao lưu trước mỗi lần xoá đơn.</p>
+      </div>
+      <div v-if="pvErr" class="alert err">{{pvErr}}</div>
+      <div v-else-if="pv && (pv.images || pv.creds || pv.orders)" class="alert warn">Với cài đặt này, lần dọn tới sẽ xoá: <b>{{purgeText(pv)}}</b></div>
+      <div v-else-if="pv" class="muted small">Với cài đặt này, hiện chưa có dữ liệu nào đủ cũ để xoá.</div>
+      <p v-if="s.purgeLast" class="muted small">Lần dọn gần nhất: {{fmtDT(s.purgeLast.at)}} — đã xoá {{purgeText(s.purgeLast)}}.</p>
+      <p class="muted small">Lưu ý: các bản sao lưu cũ vẫn còn dữ liệu cho tới khi tự hết hạn (theo số bản giữ lại ở mục Sao lưu tự động).</p>
+      <div class="row mt wrap">
+        <button class="btn primary" :disabled="saving" @click="save"><ic n="check" s="16"></ic>Lưu cài đặt</button>
+        <button class="btn" :disabled="saving || !purgeOn" @click="purgeNow"><ic n="trash" s="16"></ic>Dọn ngay</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><b>Các bản sao lưu ({{backups.length}})</b><small>Mới nhất ở trên</small></div>
+      <table class="tbl m-list">
+        <thead><tr><th>Thời gian</th><th>Loại</th><th class="r hide-m">Dung lượng</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="b in backups" :key="b.kind + b.name">
+            <td class="c-main">{{fmtDT(b.at)}}<div class="muted small hide-m">{{b.name}}</div></td>
+            <td class="c-amt"><span class="pill" :class="'bk-' + b.kind">{{b.kindName}}</span></td>
+            <td class="r num hide-m">{{fmtSize(b.size)}}</td>
+            <td class="r nowrap c-act"><a class="btn sm" :href="dl(b)" download title="Tải về"><ic n="download" s="15"></ic></a> <button class="btn sm" @click="restore(b)">Khôi phục</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </template>
+</div>
+</script>
+
+<!-- ================================================================ TRANG: TÀI KHOẢN -->
+<script type="text/x-template" id="tpl-account">
+<div class="page narrow">
+  <header class="page-h"><h1>Tài khoản</h1></header>
+  <div class="card">
+    <div class="acc-hero">
+      <label class="av-edit" title="Đổi ảnh đại diện"><avatar :u="{name: f.name, color: f.color, avatar: me.avatar}" :size="80"></avatar><span class="av-cam"><ic n="camera" s="16"></ic></span>
+        <input type="file" hidden accept="image/*" @change="pickAvatar"></label>
+      <div><b>{{me.name}}</b><small>{{me.email}} · {{me.isOwner ? 'Admin gốc' : me.role === 'admin' ? 'Admin' : 'CTV'}}</small>
+        <div class="row mt">
+          <label class="btn sm"><ic n="camera" s="15"></ic>{{me.avatar ? 'Đổi ảnh' : 'Tải ảnh đại diện'}}<input type="file" hidden accept="image/*" @change="pickAvatar"></label>
+          <button v-if="me.avatar" class="btn sm" @click="removeAvatar">Bỏ ảnh</button>
+        </div>
+      </div>
+    </div>
+    <label class="fld"><span>Tên hiển thị</span><input class="inp" v-model="f.name"></label>
+    <div class="fld"><span>Màu nền ảnh đại diện (khi không dùng ảnh)</span><div class="swatches"><button v-for="c in colors" :key="c" :style="{background: c}" :class="{on: f.color===c}" @click="f.color=c" :aria-label="c"></button></div></div>
+    <label class="fld"><span>Số điện thoại / Zalo</span><input class="inp" v-model="f.phone"></label>
+    <div class="bank-sec">
+      <div class="card-h"><b>Tài khoản ngân hàng nhận lương</b><small>Admin quét mã QR từ thông tin này để trả lương</small></div>
+      <div class="fld"><span>Ngân hàng</span>
+        <select class="inp" v-model="f.bankBin"><option value="">— Chọn ngân hàng —</option><option v-for="b in S.banks" :key="b.bin" :value="b.bin">{{b.short}} — {{b.name}}</option></select></div>
+      <div class="grid2">
+        <label class="fld"><span>Số tài khoản</span><input class="inp" v-model="f.bankAcc" inputmode="numeric" placeholder="Ví dụ: 108875753007"></label>
+        <label class="fld"><span>Tên chủ tài khoản</span><input class="inp" v-model="f.bankHolder" placeholder="NGUYEN VAN A"></label>
+      </div>
+      <div v-if="f.bankBin && f.bankAcc" class="net-box"><span>Admin sẽ chuyển khoản tới</span><b>{{bankName}} · {{f.bankAcc}}<template v-if="f.bankHolder"> · {{f.bankHolder.toUpperCase()}}</template></b></div>
+      <p v-if="me.role==='member'" class="muted small">Chiết khấu của bạn: <b>{{me.discountPct || 0}}%</b> (admin đặt) — mỗi đơn hiện rõ tiền công và số tiền thực nhận.</p>
+      <p v-if="me.bankNote && !f.bankBin" class="muted small">Thông tin cũ bạn đã ghi: “{{me.bankNote}}” — hãy chọn lại ngân hàng và số tài khoản ở trên.</p>
+    </div>
+    <button class="btn primary" @click="save">Lưu thông tin</button>
+  </div>
+  <div class="card">
+    <div class="card-h"><b>Giao diện & thông báo</b></div>
+    <div class="fld"><span>Chế độ màu</span><div class="seg"><button v-for="t in [['auto','Theo máy'],['light','Sáng'],['dark','Tối']]" :key="t[0]" :class="{on: S.theme===t[0]}" @click="setTheme(t[0])">{{t[1]}}</button></div></div>
+    <label class="switch"><input type="checkbox" :checked="S.sound" @change="toggleSound"><span>Âm báo khi có tin nhắn mới</span></label>
+  </div>
+  <div class="card" id="thong-bao">
+    <div class="card-h"><b>Thông báo trên điện thoại</b><small>Tin nhắn riêng, đơn mới, đơn được thanh toán, khi có người @nhắc tên bạn</small></div>
+    <div class="push-box" :class="'p-' + (S.push || 'wait')">
+      <template v-if="S.push === 'on'">
+        <ic n="check" s="20"></ic><div class="grow"><b>Máy này đang nhận thông báo</b><small>Kể cả khi đã đóng app. Muốn nhận trên máy khác thì mở app trên máy đó và bật ở đây.</small></div>
+      </template>
+      <template v-else-if="S.push === 'off'">
+        <ic n="bell" s="20"></ic><div class="grow"><b>Chưa bật trên máy này</b><small>Bật để tin nhắn và đơn mới hiện lên thanh thông báo như Zalo / Messenger.</small></div>
+      </template>
+      <template v-else-if="S.push === 'denied'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Bạn đã chặn thông báo cho trang này</b><small>Mở cài đặt trình duyệt → Quyền của trang web → Thông báo → Cho phép, rồi tải lại trang.</small></div>
+      </template>
+      <template v-else-if="S.push === 'ios'">
+        <ic n="info" s="20"></ic><div class="grow"><b>iPhone / iPad: cần thêm app vào Màn hình chính</b><small>Trong Safari bấm nút <b>Chia sẻ</b> <ic n="share" s="14" class="inl-ic"></ic> → <b>Thêm vào MH chính</b>. Mở app từ biểu tượng ngoài màn hình chính, vào lại trang này và bấm Bật (cần iOS 16.4 trở lên).</small></div>
+      </template>
+      <template v-else-if="S.push === 'insecure'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Cần mở app bằng địa chỉ https://</b><small>Điện thoại chỉ cho phép thông báo khi mở bằng https. Hiện đang mở bằng <code>{{origin}}</code>. {{admin ? 'Xem HUONG-DAN.md, mục “Thông báo trên điện thoại”, để có địa chỉ https miễn phí.' : 'Hãy hỏi admin địa chỉ https của app.'}}</small></div>
+      </template>
+      <template v-else-if="S.push === 'unsupported'">
+        <ic n="info" s="20"></ic><div class="grow"><b>Trình duyệt này chưa hỗ trợ thông báo đẩy</b><small>Dùng Chrome (Android, máy tính) hoặc Safari trên iPhone (sau khi thêm vào Màn hình chính).</small></div>
+      </template>
+      <template v-else><ic n="bell" s="20"></ic><div class="grow"><b>Đang kiểm tra…</b></div></template>
+    </div>
+    <div class="row wrap mt">
+      <button v-if="S.push === 'off' || S.push === 'denied'" class="btn primary" @click="enablePush"><ic n="bell" s="16"></ic>Bật thông báo trên máy này</button>
+      <template v-if="S.push === 'on'">
+        <button class="btn" @click="testPush"><ic n="bell" s="16"></ic>Gửi thử</button>
+        <button class="btn" @click="disablePush"><ic n="x" s="16"></ic>Tắt trên máy này</button>
+      </template>
+    </div>
+    <label class="switch mt"><input type="checkbox" :checked="me.notifyGroup" @change="toggleGroup"><span>Báo <b>mọi tin nhắn trong nhóm</b> (mặc định trong nhóm chỉ báo khi có người <b>@nhắc tên bạn</b> hoặc admin <b>@all</b>)</span></label>
+  </div>
+  <form class="card" @submit.prevent="changePw">
+    <div class="card-h"><b>Đổi mật khẩu</b></div>
+    <label class="fld"><span>Mật khẩu hiện tại</span><input class="inp" type="password" v-model="pw.current" autocomplete="current-password" required></label>
+    <div class="grid2">
+      <label class="fld"><span>Mật khẩu mới</span><input class="inp" type="password" v-model="pw.next" autocomplete="new-password" required minlength="6"></label>
+      <label class="fld"><span>Nhập lại</span><input class="inp" type="password" v-model="pw.again" autocomplete="new-password" required minlength="6"></label>
+    </div>
+    <button class="btn">Đổi mật khẩu</button>
+  </form>
+  <button class="btn block danger" @click="logout"><ic n="logout" s="18"></ic>Đăng xuất</button>
+</div>
+</script>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/qrcode.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

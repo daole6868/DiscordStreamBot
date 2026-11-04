@@ -1,0 +1,12 @@
+{
+  "name": "ctv-chat",
+  "version": "1.0.0",
+  "description": "Nhắn tin nội bộ kiểu Messenger + giao đơn cho CTV + doanh thu + sao lưu tự động",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
