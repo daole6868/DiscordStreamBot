@@ -160,13 +160,68 @@ else
   ok "$DOMAIN → $DNSIP (đúng IP của VPS)"
 fi
 
-# ---------------------------------------------------------------- 6. HTTPS (Caddy)
+# ---------------------------------------------------------------- 6. HTTPS (Nginx sẵn có, hoặc Caddy)
 say "6/7  HTTPS cho $DOMAIN"
+NGX_DIR="${NGX_DIR:-/etc/nginx}"
 WEB="$(ss -ltnpH '( sport = :80 or sport = :443 )' 2>/dev/null || true)"
-if echo "$WEB" | grep -qE '"(nginx|apache2|httpd|lighttpd)"'; then
-  warn "VPS đang có Nginx / Apache chiếm cổng 80/443 nên KHÔNG cài Caddy."
-  warn "Dùng file mẫu deploy/nginx-ctv-chat.conf (hướng dẫn ở đầu file) để thêm $DOMAIN vào Nginx."
-  WEB_OK=0
+WEB_APPS="$( { printf '%s\n' "$WEB" | grep -oE 'users:\(\("[^"]+"' || true; } | sed -E 's/users:\(\("//; s/"$//' | sort -u | tr '\n' ' ')"
+OTHER="$(printf '%s\n' $WEB_APPS | grep -vxE 'nginx|caddy' | tr '\n' ' ' || true)"
+if [ -n "${OTHER// /}" ]; then
+  warn "Cổng 80/443 đang do chương trình khác dùng: $OTHER"
+  die "Chưa thể tự gắn $DOMAIN. Gửi kết quả lệnh này cho người hỗ trợ:  sudo ss -ltnp | grep -E ':(80|443) '"
+elif printf '%s' "$WEB_APPS" | grep -qw nginx; then
+  # VPS đang chạy web khác bằng Nginx → THÊM 1 trang riêng cho $DOMAIN, không đụng tới cấu hình cũ
+  if [ -d "$NGX_DIR/sites-available" ] && [ -d "$NGX_DIR/sites-enabled" ]; then
+    CONF="$NGX_DIR/sites-available/ctv-chat-$DOMAIN.conf"; LINK="$NGX_DIR/sites-enabled/ctv-chat-$DOMAIN.conf"
+  else
+    CONF="$NGX_DIR/conf.d/ctv-chat-$DOMAIN.conf"; LINK=""
+  fi
+  if [ -f "$CONF" ]; then
+    sed -i -E "s#proxy_pass http://127\.0\.0\.1:[0-9]+;#proxy_pass http://127.0.0.1:$PORT;#" "$CONF"
+    ok "Nginx đã có trang $DOMAIN (giữ nguyên, chỉ cập nhật cổng)"
+  else
+    mkdir -p "$(dirname "$CONF")"
+    cat >"$CONF" <<NGX
+# CTV Chat — tạo bởi deploy/cai-dat-vps.sh (HTTPS do certbot thêm vào)
+server {
+    listen 80;
+    server_name $DOMAIN;
+    client_max_body_size 500m;
+
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+}
+NGX
+    ok "đã thêm trang $DOMAIN vào Nginx (các trang web khác giữ nguyên)"
+  fi
+  [ -n "$LINK" ] && ln -sf "$CONF" "$LINK"
+  if ! nginx -t >/dev/null 2>&1; then
+    [ -n "$LINK" ] && rm -f "$LINK"
+    mv "$CONF" "$CONF.loi"
+    nginx -t || true
+    die "Cấu hình Nginx bị lỗi nên đã gỡ trang $DOMAIN ra (web cũ không bị ảnh hưởng)."
+  fi
+  systemctl reload nginx
+  if grep -q 'ssl_certificate' "$CONF"; then
+    ok "đã có chứng chỉ HTTPS cho $DOMAIN"
+  else
+    command -v certbot >/dev/null && certbot plugins 2>/dev/null | grep -q nginx || apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect --register-unsafely-without-email >/dev/null 2>&1; then
+      ok "đã lấy chứng chỉ HTTPS (Let's Encrypt, tự gia hạn)"
+    else
+      warn "Chưa lấy được chứng chỉ HTTPS — thường do tên miền chưa trỏ xong. Trỏ xong chạy lại lệnh cài."
+    fi
+  fi
+  WEB_OK=1
 else
   if ! command -v caddy >/dev/null; then
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg

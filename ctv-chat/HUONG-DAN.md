@@ -56,20 +56,14 @@ Cần: VPS **Ubuntu 22.04 / 24.04** hoặc **Debian 11 / 12** (1 GB RAM là đ�
 
 **Bước 2. Đưa app lên VPS** — chọn **2a (GitHub, khuyên dùng: cập nhật bằng 1 lệnh)** hoặc **2b (file zip)**.
 
-**2a. Lấy thẳng từ GitHub.** Kho `daole6868/DiscordStreamBot` là kho riêng tư, nên VPS cần một **chìa khoá chỉ đọc (deploy key)**. Trên VPS:
+**2a. Lấy thẳng từ GitHub** (kho `daole6868/DiscordStreamBot` đang để công khai). Trên VPS:
 ```
-apt-get update && apt-get install -y git
-mkdir -p ~/.ssh && ssh-keygen -t ed25519 -N "" -C "vps-ctv-chat" -f ~/.ssh/ctv_deploy
-printf 'Host github-ctv\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/ctv_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
-ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-cat ~/.ssh/ctv_deploy.pub
-```
-Chép dòng `ssh-ed25519 …` vừa hiện ra. Trên GitHub, mở kho → **Settings → Deploy keys → Add deploy key**, dán vào, **không** tick “Allow write access” → **Add key**. Rồi trên VPS:
-```
-git clone --depth 1 --filter=blob:none --sparse -b claude/determined-franklin-77acow git@github-ctv:daole6868/DiscordStreamBot.git ctv-src
+sudo apt-get update && sudo apt-get install -y git
+git clone --depth 1 --filter=blob:none --sparse -b claude/determined-franklin-77acow https://github.com/daole6868/DiscordStreamBot.git ctv-src
 cd ctv-src && git sparse-checkout set ctv-chat && cd ctv-chat
 sudo bash deploy/cai-dat-vps.sh chat.tenmien.com
 ```
+Nếu sau này để kho ở chế độ riêng tư (private), VPS cần một deploy key (chìa khoá chỉ đọc): GitHub → Settings → Deploy keys.
 (bỏ qua bước 3 bên dưới). Sau này **cập nhật chỉ cần**: `sudo ctv-chat cap-nhat`.
 
 **2b. File zip.** Dùng **WinSCP** (kéo thả file) hoặc trên Windows mở PowerShell:
@@ -113,7 +107,8 @@ Dữ liệu nằm riêng ở `/var/lib/ctv-chat` nên **không bị mất** khi 
 | `sudo ctv-chat dat-lai-mat-khau ten@gmail.com MatKhauMoi` | Đặt lại mật khẩu (kể cả admin gốc) |
 
 - **Sao lưu:** bản tự động nằm ở `/var/lib/ctv-chat/backups`, ngay trên VPS. Thỉnh thoảng nên vào **Cài đặt → tải về** một bản để giữ trên máy tính, hoặc bật tính năng chụp ảnh ổ đĩa (snapshot) của nhà cung cấp VPS. Ô “Thư mục sao lưu phụ” chỉ dùng khi VPS có gắn thêm ổ đĩa khác (không dùng thư mục trong `/home` hay `/root`).
-- **VPS đã có Nginx** (đang chạy web khác): lệnh cài sẽ không cài Caddy. Làm theo hướng dẫn trong file `deploy/nginx-ctv-chat.conf`.
+- **VPS đang chạy web khác bằng Nginx** (ví dụ web cửa hàng ở `gachaz.shop`): lệnh cài **tự thêm một trang riêng** cho tên miền của app vào Nginx và tự lấy HTTPS bằng certbot. Cấu hình của web cũ giữ nguyên. Nếu Nginx báo lỗi, lệnh cài tự gỡ trang mới ra, web cũ không bị ảnh hưởng. Đã dùng Caddy thì lệnh cài tự thêm vào Caddyfile.
+- **Hai dự án trên cùng một VPS:** dùng tên miền con, ví dụ `ctv.gachaz.shop`. Chỉ cần thêm bản ghi A `ctv` trỏ về **cùng IP VPS**, không cần đổi `gachaz.shop`.
 - **Cổng 3000 đã có chương trình khác dùng:** chạy `sudo PORT=3005 bash deploy/cai-dat-vps.sh chat.tenmien.com`.
 - Trên VPS, app chỉ nhận kết nối qua `https://chat.tenmien.com`. Không vào thẳng bằng IP:3000 được, như vậy an toàn hơn.
 
