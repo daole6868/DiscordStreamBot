@@ -265,14 +265,31 @@ function sendTo(ids, event, payloadFor) {
 const allOnline = () => [...clients.keys()];
 setInterval(() => { for (const set of clients.values()) for (const res of set) res.write(': ping\n\n'); }, 25e3).unref();
 
-function handleEvents(req, res, user) {
+// Ai đang thật sự dùng app (mở trên màn hình, đang thao tác): không gửi thông báo đẩy cho họ — app đã tự hiện thanh nổi.
+// userId → Map(mã cửa sổ → { on, at }). Cửa sổ báo lại mỗi ~45 giây; quá 90 giây không báo coi như đã rời đi.
+const activeWins = new Map();
+const cidOf = (v) => (/^[A-Za-z0-9]{8,40}$/.test(String(v || '')) ? String(v) : null);
+function setActive(userId, cid, on) {
+  if (!cid) return;
+  if (!activeWins.has(userId)) activeWins.set(userId, new Map());
+  activeWins.get(userId).set(cid, { on: !!on, at: now() });
+}
+function isActive(userId) {
+  const m = activeWins.get(userId);
+  if (!m) return false;
+  for (const w of m.values()) if (w.on && now() - w.at < 90e3) return true;
+  return false;
+}
+function handleEvents(req, res, user, query) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  const cid = cidOf(query && query.cid);
   res.write('retry: 3000\n\n');
   const first = !clients.has(user.id);
   if (first) clients.set(user.id, new Set());
   clients.get(user.id).add(res);
   if (first) sendTo(allOnline(), 'presence', { userId: user.id, online: true });
   req.on('close', () => {
+    if (cid && activeWins.has(user.id)) { activeWins.get(user.id).delete(cid); if (!activeWins.get(user.id).size) activeWins.delete(user.id); }
     const set = clients.get(user.id);
     if (!set) return;
     set.delete(res);
@@ -418,6 +435,7 @@ function pushForMessage(convId, m, notifyIds) {
   else if (c.type === 'dm') targets = others;
   else if (m.type === 'system') targets = [];
   else targets = others.filter((id) => men.all || men.ids.includes(id) || (users.byId(id) || {}).notify_group);
+  targets = targets.filter((id) => !isActive(id)); // đang dùng app → đã có thanh nổi trong app, không gửi trùng
   if (!targets.length) return;
   const who = sender ? sender.name : setting('app_name');
   const groupName = c.type === 'group' ? c.name || 'Nhóm' : null;
@@ -1591,7 +1609,8 @@ route('GET', '/api/export.json', 'admin', ({ user, res }) => {
   return undefined;
 });
 
-route('GET', '/api/events', 'active', ({ req, res, user }) => { handleEvents(req, res, user); return undefined; });
+route('GET', '/api/events', 'active', ({ req, res, user, query }) => { handleEvents(req, res, user, query); return undefined; });
+route('POST', '/api/presence', 'active', ({ user, body }) => { setActive(user.id, cidOf(body.cid), body.active); return { ok: true }; });
 
 // ================================================================ phục vụ file
 const MIME = {

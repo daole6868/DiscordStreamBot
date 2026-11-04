@@ -540,11 +540,28 @@
 
   // ================================================================ thời gian thực
   let es = null, wasDown = false;
+  // ---------------------------------------------------------------- báo cho máy chủ biết mình đang dùng app (để khỏi gửi thông báo trùng)
+  const CID = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+  let lastInput = Date.now(), sentActive = null, sentAt = 0;
+  const isUsing = () => !document.hidden && document.hasFocus() && Date.now() - lastInput < 120e3;
+  function reportActive(force) {
+    if (S.phase !== 'app') return;
+    const on = isUsing();
+    if (!force && on === sentActive && (!on || Date.now() - sentAt < 40e3)) return;
+    sentActive = on; sentAt = Date.now();
+    fetch('/api/presence', { method: 'POST', keepalive: true, headers: { 'X-Requested-With': 'ctv', 'Content-Type': 'application/json' }, body: JSON.stringify({ cid: CID, active: on }) }).catch(() => {});
+  }
+  ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) => addEventListener(ev, () => { lastInput = Date.now(); if (!sentActive) reportActive(); }, { passive: true, capture: true }));
+  ['visibilitychange', 'focus', 'blur', 'pagehide'].forEach((ev) => addEventListener(ev, () => reportActive(true)));
+  document.addEventListener('visibilitychange', () => reportActive(true));
+  setInterval(() => reportActive(), 15e3);
+
   function connectEvents() {
     if (es) es.close();
-    es = new EventSource('/api/events');
+    es = new EventSource('/api/events?cid=' + CID);
     es.onopen = () => {
       S.connected = true;
+      reportActive(true);
       if (wasDown) { wasDown = false; resync(); }
     };
     es.onerror = () => { S.connected = false; wasDown = true; };
