@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -17,7 +18,6 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
-import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -273,7 +273,7 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
         if (requestCode != REQ_FILE) return
         val cb = fileCb ?: return
         fileCb = null
-        if (resultCode != RESULT_OK || data == null) {
+        if (resultCode != Activity.RESULT_OK || data == null) {
             cb.onReceiveValue(null)
             return
         }
@@ -301,7 +301,7 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
             if (!mime.isNullOrEmpty()) r.setMimeType(mime)
-            (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(r)
+            (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(r)
             toast("Đang tải về thư mục Download: $name")
         } catch (e: Exception) {
             toast("Không tải được: ${e.message}")
@@ -445,7 +445,7 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
         @JavascriptInterface
         fun batteryOk(): Boolean {
             if (Build.VERSION.SDK_INT < 23) return true
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             return pm.isIgnoringBatteryOptimizations(packageName)
         }
 
@@ -479,7 +479,7 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
         @JavascriptInterface
         fun copy(text: String) {
             runOnUiThread {
-                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("CTV Chat", text))
             }
         }

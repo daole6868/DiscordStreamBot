@@ -29,7 +29,8 @@ class PushService : FirebaseMessagingService() {
         val server = App.serverUrl(this)
         Thread {
             try {
-                val cookie = CookieManager.getInstance().getCookie(server) ?: return@Thread
+                val cookie = CookieManager.getInstance().getCookie(server)
+                if (cookie.isNullOrEmpty()) throw IllegalStateException("chưa đăng nhập")
                 val c = URL("$server/api/push/native").openConnection() as HttpURLConnection
                 c.requestMethod = "POST"
                 c.connectTimeout = 15000
