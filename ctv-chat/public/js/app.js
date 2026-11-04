@@ -123,7 +123,7 @@
     me: null, settings: { appName: 'CTV Chat' },
     users: {}, convs: [], activeId: null,
     msgs: {}, more: {}, orders: {}, loadingMsgs: false,
-    view: 'chat', pending: 0, mobileChat: false, info: innerWidth > 1280, convQ: '', search: null, push: '', mentioned: {},
+    view: 'chat', pending: 0, mobileChat: false, info: innerWidth > 1280, convQ: '', search: null, push: '', mentioned: {}, banner: null,
     modal: null, lightbox: null, toasts: [], busy: '', connected: true,
     theme: lsGet('ctv.theme') || 'auto', sound: lsGet('ctv.sound') !== '0',
     notif: typeof Notification !== 'undefined' && Notification.permission === 'granted',
@@ -320,25 +320,65 @@
   // ================================================================ @nhắc tên trong nhóm
   const mentionsMe = (m) => !!(m && m.mentions && S.me && (m.mentions.all || (m.mentions.ids || []).includes(S.me.id)));
   const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const ALL_TAGS = ['@all', '@tất cả', '@tatca', '@everyone'];
+    /** Chia chữ tin nhắn: link, @nhắc tên (tô màu), chữ thường. */
+  /** Các cách gọi 1 người khi tag (đã bỏ dấu): "@du duc quang", "@quang", "@duc"… */
+  function mentionKeys(name) {
+    const w = fold(name).trim().split(/\s+/).filter(Boolean);
+    const keys = new Set([w.join(' '), w.join('')]);
+    w.forEach((x, i) => { if (x.length >= 3 || i === w.length - 1) keys.add(x); });
+    return [...keys].filter(Boolean);
+  }
+  const ALL_KEYS = ['all', 'tat ca', 'tatca', 'everyone', 'moi nguoi'];
+  /** Tìm các @tag trong chữ (so không dấu, không phân biệt hoa thường). Trả về [{a, b, ids}] theo vị trí ký tự gốc. */
+  function findMentions(text, cands) {
+    const chars = Array.from(String(text || ''));
+    const map = []; let f = '';
+    chars.forEach((ch, i) => { const x = fold(ch); for (let k = 0; k < x.length; k++) map.push(i); f += x; });
+    const out = [];
+    for (let p = f.indexOf('@'); p >= 0; p = f.indexOf('@', p + 1)) {
+      if (p > 0 && !/\s/.test(f[p - 1])) continue; // @ phải đứng đầu hoặc sau dấu cách (không nhầm với email)
+      const rest = f.slice(p + 1);
+      let len = 0, ids = [];
+      for (const c of cands) for (const k of c.keys) {
+        if (!rest.startsWith(k) || /[a-z0-9]/.test(rest[k.length] || '')) continue;
+        if (k.length > len) { len = k.length; ids = [c.id]; } else if (k.length === len && !ids.includes(c.id)) ids.push(c.id);
+      }
+      if (len) out.push({ a: map[p], b: map[p + len] + 1, ids });
+    }
+    return out;
+  }
   /** Chia chữ tin nhắn: link, @nhắc tên (tô màu), chữ thường. */
   function richText(m) {
     const parts = linkify(m.text);
     const men = m.mentions;
     if (!men) return parts;
-    const names = (men.ids || []).map((id) => ({ id, n: '@' + uname(id) }));
-    if (men.all) ALL_TAGS.forEach((n) => names.push({ id: 'all', n }));
-    if (!names.length) return parts;
-    const re = new RegExp('(' + names.map((x) => x.n).sort((a, b) => b.length - a.length).map(escRe).join('|') + ')', 'gi');
+    const cands = (men.ids || []).map((id) => ({ id, keys: mentionKeys(uname(id)) }));
+    if (men.all) cands.push({ id: 'all', keys: ALL_KEYS });
+    if (!cands.length) return parts;
     const out = [];
     for (const p of parts) {
       if (p.url) { out.push(p); continue; }
-      p.v.split(re).forEach((v, i) => {
-        if (!v) return;
-        if (i % 2) { const x = names.find((y) => y.n.toLowerCase() === v.toLowerCase()) || {}; out.push({ v, mention: true, me: x.id === 'all' || x.id === S.me.id }); } else out.push({ v });
-      });
+      const chars = Array.from(p.v);
+      let at = 0;
+      for (const sp of findMentions(p.v, cands)) {
+        if (sp.a > at) out.push({ v: chars.slice(at, sp.a).join('') });
+        out.push({ v: chars.slice(sp.a, sp.b).join(''), mention: true, me: sp.ids.includes('all') || sp.ids.includes(S.me.id) });
+        at = sp.b;
+      }
+      if (at < chars.length) out.push({ v: chars.slice(at).join('') });
     }
     return out;
+  }
+
+  // ---------------------------------------------------------------- thông báo nổi trong app (khi đang mở app ở chỗ khác)
+  let bannerT = null;
+  function showBanner(c, msg, me) {
+    const who = msg.senderId ? uname(msg.senderId) : convTitle(c);
+    const title = me ? `${who} nhắc đến bạn · ${convTitle(c)}` : c.type === 'group' && msg.senderId ? `${who} · ${convTitle(c)}` : who;
+    S.banner = { id: msg.id, convId: c.id, senderId: msg.senderId, title, body: previewBody(c), icon: previewIcon(c), mention: me };
+    clearTimeout(bannerT);
+    bannerT = setTimeout(() => { if (S.banner && S.banner.id === msg.id) S.banner = null; }, me ? 9000 : 6000);
+    if (navigator.vibrate) try { navigator.vibrate(me ? [70, 50, 70] : 40); } catch {}
   }
 
   // ================================================================ dữ liệu
@@ -529,6 +569,7 @@
           if (c.type !== 'group' || me || S.me.notifyGroup) {
             beep();
             notify(convTitle(c), (me ? 'Nhắc đến bạn · ' : '') + msgPreview(c), c.id);
+            showBanner(c, msg, me);
           }
         }
       }
@@ -1202,7 +1243,7 @@
   // ================================================================ trang: Tài khoản
   const AccountView = {
     template: '#tpl-account',
-    data: () => ({ S, f: { name: '', color: '', phone: '', bankBin: '', bankAcc: '', bankHolder: '' }, pw: { current: '', next: '', again: '' }, colors: ['#0a7cff', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#ca8a04', '#4f46e5', '#be123c', '#0d9488'] }),
+    data: () => ({ S, pushTest: null, f: { name: '', color: '', phone: '', bankBin: '', bankAcc: '', bankHolder: '' }, pw: { current: '', next: '', again: '' }, colors: ['#0a7cff', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#ca8a04', '#4f46e5', '#be123c', '#0d9488'] }),
     created() { const m = S.me, b = m.bank || {}; this.f = { name: m.name, color: m.color, phone: m.phone || '', bankBin: b.bin || '', bankAcc: b.account || '', bankHolder: b.holder || '' }; },
     computed: {
       me: () => S.me, notifSupported: () => typeof Notification !== 'undefined', admin: isAdmin, origin: () => location.origin,
@@ -1243,7 +1284,20 @@
         if (!S.notif) toast('Trình duyệt chưa cho phép thông báo', 'warn');
       },
       enablePush, disablePush,
-      async testPush() { const r = await tryApi('POST', '/api/push/test'); toast(`Đã gửi thử tới ${r.devices} máy — xem thanh thông báo`); },
+      async testPush() {
+        this.pushTest = null;
+        const r = await tryApi('POST', '/api/push/test');
+        this.pushTest = r;
+        if (r.ok === r.devices) toast(`Máy chủ đã gửi thành công tới ${r.devices} máy — xem thanh thông báo`, 'ok', 5000, 'bell');
+        else toast(`Gửi được ${r.ok}/${r.devices} máy — xem chi tiết bên dưới`, 'warn', 6000);
+      },
+      pushErr(x) {
+        if (x.status >= 200 && x.status < 300) return 'đã gửi';
+        if (!x.status) return 'máy chủ không kết nối được dịch vụ thông báo (VPS chặn mạng ra ngoài?)' + (x.error ? ` — ${x.error}` : '');
+        if (x.status === 401 || x.status === 403) return 'khoá thông báo không khớp — bấm Tắt rồi Bật lại trên máy đó';
+        if (x.status === 404 || x.status === 410) return 'đăng ký đã hết hạn — bật lại thông báo trên máy đó';
+        return 'lỗi ' + x.status;
+      },
       async toggleGroup(e) { const r = await tryApi('PATCH', '/api/me', { notifyGroup: e.target.checked }); applyUser(r.user); toast('Đã lưu'); },
       async logout() {
         await disablePush(true);
@@ -1413,11 +1467,14 @@
       mentionsOf(text) {
         const c = this.active;
         if (!c || c.type !== 'group') return {};
-        const f = fold(text);
-        const ids = c.members.filter((id) => id !== S.me.id && S.users[id] && f.includes('@' + fold(S.users[id].name)));
-        const all = this.admin && /(^|\s)@(all|tat ?ca|everyone)(?=$|[\s.,!?:;])/.test(f);
-        return { mentions: ids, mentionAll: all };
+        const cands = c.members.filter((id) => id !== S.me.id && S.users[id] && S.users[id].status === 'active').map((id) => ({ id, keys: mentionKeys(S.users[id].name) }));
+        if (this.admin) cands.push({ id: 'all', keys: ALL_KEYS });
+        const ids = new Set(), spans = findMentions(text, cands);
+        let all = false;
+        for (const sp of spans) for (const id of sp.ids) { if (id === 'all') all = true; else ids.add(id); }
+        return { mentions: [...ids], mentionAll: all };
       },
+      openBanner() { const b = S.banner; S.banner = null; if (!b) return; S.search = null; S.modal = null; openConv(b.convId); },
       money, compact, fmtTime, fmtDT, fmtDay, shortTime, linkify, convTitle, msgPreview, uname, agoText, go, openConv, openDm, openOrderForm, openOrderDetail, jumpToMsg, logText, LOG_ICON, LOG_TONE, closeModal, toLocalInput,
       // ---------- đăng nhập
       async submitAuth() {
@@ -1489,7 +1546,10 @@
         this.reply = null;
         this.mention = null;
         try {
-          const m = await api('POST', `/api/convs/${convId}/messages`, { text, images: images || [], replyTo: reply ? reply.id : null, ...this.mentionsOf(text) });
+          const men = this.mentionsOf(text);
+          const m = await api('POST', `/api/convs/${convId}/messages`, { text, images: images || [], replyTo: reply ? reply.id : null, ...men });
+          // có gõ @… mà không khớp ai trong nhóm → nhắc cách tag
+          if (men.mentions && !men.mentions.length && !men.mentionAll && /(^|\s)@[^\s@]/.test(text)) toast('Chưa tag được ai: gõ @ rồi chọn tên trong danh sách', 'warn', 5000);
           const list = S.msgs[convId];
           if (list && !list.some((x) => x.id === m.id)) list.push(m);
         } catch (e) { this.text = text; this.reply = reply; toast(e.message, 'err'); }

@@ -136,7 +136,8 @@ Dữ liệu nằm riêng ở `/var/lib/ctv-chat` nên **không bị mất** khi 
 
 ### Nhắc tên trong nhóm (@)
 
-- Trong nhóm, gõ **@** rồi chọn người trong danh sách (gõ thêm vài chữ để lọc, có dấu hay không dấu đều được). Người được nhắc sẽ nhận thông báo, thấy tên mình **tô vàng** trong tin và dấu **@** cam ở danh sách chat.
+- Trong nhóm, gõ **@** rồi chọn người trong danh sách, hoặc gõ thẳng **@tên** (ví dụ `@quang`, `@uyen`, có dấu hay không dấu đều được). Tag đúng thì tên được **tô màu** trong tin. Gõ `@…` mà không khớp ai, app sẽ nhắc.
+- Người được nhắc nhận thông báo, thấy tên mình **tô vàng** trong tin và dấu **@** cam ở danh sách chat. **Đang mở app** thì hiện **thanh thông báo nổi** trên cùng màn hình (bấm vào để mở đoạn chat).
 - **Admin** có thêm **@all**: báo cho **tất cả** mọi người trong nhóm. CTV không dùng được @all.
 
 Giao diện điện thoại: thanh dưới có **Đoạn chat · Đơn hàng · Doanh thu · Kết toán · Thêm**. Nút **Thêm** mở Lịch sử, Thành viên, Cài đặt và Tài khoản. Các bảng tự chuyển thành danh sách gọn, không phải kéo ngang.

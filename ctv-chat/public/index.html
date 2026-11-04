@@ -276,6 +276,12 @@
     <account-view v-else-if="S.view==='account'"></account-view>
   </main>
   <search-panel v-if="S.search"></search-panel>
+  <!-- thông báo nổi trong app: tin mới ở đoạn chat khác, có người tag mình -->
+  <div v-if="S.banner" class="inapp" :class="{ment: S.banner.mention}" role="alert" @click="openBanner">
+    <avatar v-if="S.banner.senderId" :u="S.banner.senderId" :size="38"></avatar><span v-else class="inapp-ic"><ic n="bell" s="18"></ic></span>
+    <span class="grow"><b><ic v-if="S.banner.mention" n="at" s="14"></ic>{{S.banner.title}}</b><small><ic v-if="S.banner.icon" :n="S.banner.icon" s="13"></ic>{{S.banner.body}}</small></span>
+    <button class="ibtn sm" title="Đóng" @click.stop="S.banner = null"><ic n="x" s="14"></ic></button>
+  </div>
 </div>
 
 <!-- ================================================================ HỘP THOẠI -->
@@ -1084,6 +1090,19 @@
         <button class="btn" @click="disablePush"><ic n="x" s="16"></ic>Tắt trên máy này</button>
       </template>
     </div>
+    <div v-if="pushTest" class="push-test">
+      <b>Kết quả gửi thử:</b>
+      <div v-for="(x, i) in pushTest.results" :key="i" :class="x.status >= 200 && x.status < 300 ? 'ok' : 'err'"><ic :n="x.status >= 200 && x.status < 300 ? 'check' : 'info'" s="14"></ic>{{x.device}}: {{pushErr(x)}}</div>
+    </div>
+    <details class="push-help">
+      <summary>Bấm Gửi thử mà không thấy thông báo?</summary>
+      <ul>
+        <li><b>Đang mở app trên màn hình</b> thì tin mới hiện thành thanh nổi ngay trong app (không hiện lên thanh thông báo của máy để khỏi báo trùng). Thử: thoát ra màn hình chính rồi nhờ người khác nhắn / tag bạn.</li>
+        <li><b>Android:</b> Cài đặt → Ứng dụng → Chrome → Thông báo → bật, mở mục <b>Trang web</b> → trang này → bật và chọn <b>Hiện trên màn hình (Pop up)</b>. Tắt chế độ Không làm phiền. Cài đặt → Pin → Chrome → <b>Không hạn chế</b>.</li>
+        <li><b>iPhone:</b> phải mở app từ biểu tượng ở Màn hình chính. Cài đặt → Thông báo → <b>CTV Chat</b> → Cho phép thông báo, kiểu <b>Biểu ngữ</b>. Tắt Tập trung (Focus).</li>
+        <li>Trong nhóm, chỉ người <b>được tag</b> mới nhận thông báo: gõ <b>@</b> rồi chọn tên trong danh sách, hoặc gõ <b>@tên</b> (ví dụ <b>@quang</b>). Tag đúng thì tên được <b>tô màu</b> trong tin. Tự tag chính mình thì không có thông báo.</li>
+      </ul>
+    </details>
     <label class="switch mt"><input type="checkbox" :checked="me.notifyGroup" @change="toggleGroup"><span>Báo <b>mọi tin nhắn trong nhóm</b> (mặc định trong nhóm chỉ báo khi có người <b>@nhắc tên bạn</b> hoặc admin <b>@all</b>)</span></label>
   </div>
   <form class="card" @submit.prevent="changePw">

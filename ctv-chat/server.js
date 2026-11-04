@@ -379,22 +379,32 @@ function vapid() {
   vapidCache.subject = 'mailto:' + (owner ? owner.email : 'admin@ctv-chat.local');
   return vapidCache;
 }
+/** Tên máy dễ đọc từ User-Agent (để báo kết quả "Gửi thử"). */
+function deviceName(ua) {
+  ua = String(ua || '');
+  const os = /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Máy';
+  const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : '';
+  return br ? `${os} · ${br}` : os;
+}
+/** Gửi tới mọi máy đã bật thông báo của các người dùng này. Trả về kết quả từng máy (không cần chờ). */
 function pushTo(userIds, payload, topic) {
   const ids = [...new Set(userIds)].filter((id) => { const u = users.byId(id); return u && u.status === 'active'; });
-  if (!ids.length) return;
+  if (!ids.length) return Promise.resolve([]);
   const subs = store.all('SELECT * FROM push_subs WHERE user_id IN (SELECT value FROM json_each(?))', JSON.stringify(ids));
-  if (!subs.length) return;
+  if (!subs.length) return Promise.resolve([]);
   const v = vapid();
-  for (const sub of subs) {
-    webpush.send(sub, payload, v, { topic }).then((r) => {
-      if (r.status >= 200 && r.status < 300) store.run('UPDATE push_subs SET last_ok = ?, fails = 0 WHERE id = ?', now(), sub.id);
-      else if (r.status === 404 || r.status === 410) store.run('DELETE FROM push_subs WHERE id = ?', sub.id); // máy đã tắt / gỡ app
+  return Promise.all(subs.map((sub) => webpush.send(sub, payload, v, { topic }).then((r) => {
+    if (r.status >= 200 && r.status < 300) store.run('UPDATE push_subs SET last_ok = ?, fails = 0 WHERE id = ?', now(), sub.id);
+    else {
+      console.error(`  [thông báo] gửi tới ${deviceName(sub.ua)} của người dùng #${sub.user_id} lỗi: ${r.status || r.error}`);
+      if (r.status === 404 || r.status === 410) store.run('DELETE FROM push_subs WHERE id = ?', sub.id); // máy đã tắt / gỡ app
       else {
         store.run('UPDATE push_subs SET fails = fails + 1 WHERE id = ?', sub.id);
         if (sub.fails >= 30) store.run('DELETE FROM push_subs WHERE id = ?', sub.id);
       }
-    }).catch(() => {});
-  }
+    }
+    return { device: deviceName(sub.ua), status: r.status, error: r.error || null };
+  }).catch((e) => ({ device: deviceName(sub.ua), status: 0, error: e.message }))));
 }
 /** Ai nhận thông báo cho 1 tin: chat riêng → người kia; nhóm → người được @nhắc (admin @all = cả nhóm) + người bật "báo mọi tin trong nhóm". */
 function pushForMessage(convId, m, notifyIds) {
@@ -834,11 +844,11 @@ route('POST', '/api/push/unsubscribe', 'active', ({ user, body }) => {
   store.run('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?', str(body.endpoint, 1000), user.id);
   return { ok: true };
 });
-route('POST', '/api/push/test', 'active', ({ user }) => {
+route('POST', '/api/push/test', 'active', async ({ user }) => {
   const n = store.get('SELECT COUNT(*) n FROM push_subs WHERE user_id = ?', user.id).n;
   if (!n) fail(400, 'Chưa có máy nào bật thông báo');
-  pushTo([user.id], { title: 'Thử thông báo', body: 'Thông báo đã hoạt động! Tin nhắn và đơn mới sẽ hiện như thế này.', url: '/#/account', tag: 'test', force: true });
-  return { devices: n };
+  const results = await pushTo([user.id], { title: 'Thử thông báo', body: 'Thông báo đã hoạt động! Tin nhắn và đơn mới sẽ hiện như thế này.', url: '/#/account', tag: 'test', force: true });
+  return { devices: results.length, ok: results.filter((r) => r.status >= 200 && r.status < 300).length, results };
 });
 
 // ---------------------------------------------------------------- tìm kiếm: tin nhắn, đơn, tài khoản/mật khẩu, thành viên, kết toán
