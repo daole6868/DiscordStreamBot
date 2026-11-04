@@ -1,6 +1,13 @@
 /* Service worker của CTV Chat: nhận thông báo đẩy (kể cả khi đã đóng app) và mở đúng đoạn chat khi bấm vào thông báo. */
-self.addEventListener('install', () => self.skipWaiting());
+const OFFLINE = '/offline.html';
+self.addEventListener('install', (e) => e.waitUntil(caches.open('ctv-v1').then((c) => c.add(OFFLINE)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+// Mở app khi mất mạng → hiện trang "Mất kết nối" (tự thử lại) thay vì trang lỗi của trình duyệt.
+// Chỉ xử lý việc mở trang; tin nhắn, ảnh, API vẫn đi thẳng tới máy chủ như bình thường.
+self.addEventListener('fetch', (e) => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => caches.match(OFFLINE)));
+});
 
 self.addEventListener('push', (e) => {
   let d = {};

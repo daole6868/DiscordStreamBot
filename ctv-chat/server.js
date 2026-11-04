@@ -266,7 +266,7 @@ const allOnline = () => [...clients.keys()];
 setInterval(() => { for (const set of clients.values()) for (const res of set) res.write(': ping\n\n'); }, 25e3).unref();
 
 // Ai đang thật sự dùng app (mở trên màn hình, đang thao tác): không gửi thông báo đẩy cho họ — app đã tự hiện thanh nổi.
-// userId → Map(mã cửa sổ → { on, at }). Cửa sổ báo lại mỗi ~45 giây; quá 90 giây không báo coi như đã rời đi.
+// userId → Map(mã cửa sổ → { on, at }). Cửa sổ báo lại mỗi ~20 giây; quá 45 giây không báo coi như đã rời đi.
 const activeWins = new Map();
 const cidOf = (v) => (/^[A-Za-z0-9]{8,40}$/.test(String(v || '')) ? String(v) : null);
 function setActive(userId, cid, on) {
@@ -277,7 +277,7 @@ function setActive(userId, cid, on) {
 function isActive(userId) {
   const m = activeWins.get(userId);
   if (!m) return false;
-  for (const w of m.values()) if (w.on && now() - w.at < 90e3) return true;
+  for (const w of m.values()) if (w.on && now() - w.at < 45e3) return true;
   return false;
 }
 function handleEvents(req, res, user, query) {

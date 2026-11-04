@@ -124,6 +124,8 @@
     users: {}, convs: [], activeId: null,
     msgs: {}, more: {}, orders: {}, loadingMsgs: false,
     view: 'chat', pending: 0, mobileChat: false, info: innerWidth > 1280, convQ: '', search: null, push: '', mentioned: {}, banner: null,
+    canInstall: false, installed: (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true,
+    isAndroid: /Android/i.test(navigator.userAgent),
     modal: null, lightbox: null, toasts: [], busy: '', connected: true,
     theme: lsGet('ctv.theme') || 'auto', sound: lsGet('ctv.sound') !== '0',
     notif: typeof Notification !== 'undefined' && Notification.permission === 'granted',
@@ -270,6 +272,18 @@
   // Cần mở app qua https:// (hoặc http://localhost). iPhone: phải "Thêm vào Màn hình chính" rồi mở từ biểu tượng.
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  // Đăng ký service worker ngay khi mở trang (kể cả chưa đăng nhập) — để Chrome cho "Cài đặt ứng dụng" thật, không phải lối tắt
+  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // Chrome báo trang này cài được thành ứng dụng → giữ lại để hiện nút "Cài đặt ứng dụng" trong app
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; S.canInstall = true; });
+  addEventListener('appinstalled', () => { installEvt = null; S.canInstall = false; S.installed = true; toast('Đã cài CTV Chat như một ứng dụng — mở từ biểu tượng ngoài màn hình chính', 'ok', 6000, 'check'); });
+  async function installApp() {
+    if (!installEvt) { go('account'); return; }
+    installEvt.prompt();
+    const r = await installEvt.userChoice.catch(() => null);
+    if (r && r.outcome === 'accepted') S.canInstall = false;
+  }
   const b64uBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
   async function pushInit() {
     if (!('serviceWorker' in navigator) || !window.isSecureContext) { S.push = window.isSecureContext ? 'unsupported' : 'insecure'; return; }
@@ -547,14 +561,15 @@
   function reportActive(force) {
     if (S.phase !== 'app') return;
     const on = isUsing();
-    if (!force && on === sentActive && (!on || Date.now() - sentAt < 40e3)) return;
+    if (!force && on === sentActive && (!on || Date.now() - sentAt < 20e3)) return;
     sentActive = on; sentAt = Date.now();
     fetch('/api/presence', { method: 'POST', keepalive: true, headers: { 'X-Requested-With': 'ctv', 'Content-Type': 'application/json' }, body: JSON.stringify({ cid: CID, active: on }) }).catch(() => {});
   }
   ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) => addEventListener(ev, () => { lastInput = Date.now(); if (!sentActive) reportActive(); }, { passive: true, capture: true }));
-  ['visibilitychange', 'focus', 'blur', 'pagehide'].forEach((ev) => addEventListener(ev, () => reportActive(true)));
+  ['focus', 'blur', 'pagehide'].forEach((ev) => addEventListener(ev, () => reportActive(true)));
   document.addEventListener('visibilitychange', () => reportActive(true));
-  setInterval(() => reportActive(), 15e3);
+  document.addEventListener('freeze', () => reportActive(true));
+  setInterval(() => reportActive(), 10e3);
 
   function connectEvents() {
     if (es) es.close();
@@ -1300,7 +1315,7 @@
         S.notif = p === 'granted';
         if (!S.notif) toast('Trình duyệt chưa cho phép thông báo', 'warn');
       },
-      enablePush, disablePush,
+      enablePush, disablePush, installApp,
       async testPush() {
         this.pushTest = null;
         const r = await tryApi('POST', '/api/push/test');
@@ -1453,7 +1468,7 @@
     methods: {
       goMore(v) { this.more = false; go(v); },
       openSearch(o) { this.more = false; openSearch(o); },
-      quoteOfMsg, quoteText, quoteIcon, previewIcon, previewWho, previewBody, copy: copyText, richText, mentionsMe, enablePush,
+      quoteOfMsg, quoteText, quoteIcon, previewIcon, previewWho, previewBody, copy: copyText, richText, mentionsMe, enablePush, installApp,
       hidePush() { this.pushHide = true; lsSet('ctv.pushHide', '1'); },
       // ---------- @nhắc tên: gõ @ trong nhóm → chọn người
       checkMention(t) {

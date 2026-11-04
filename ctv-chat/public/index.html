@@ -99,7 +99,13 @@
           </div>
         </header>
         <button class="search search-btn" @click="openSearch()"><ic n="search" s="16"></ic><span>Tìm tin nhắn, đơn, tài khoản…</span></button>
-        <div v-if="(S.push === 'off' || S.push === 'ios') && !pushHide" class="push-banner">
+        <div v-if="S.canInstall && !S.installed && !pushHide" class="push-banner">
+          <ic n="download" s="18"></ic>
+          <span>Cài CTV Chat thành <b>ứng dụng</b> trên máy để nhận thông báo như Zalo / Messenger</span>
+          <button class="btn sm primary" @click="installApp">Cài đặt</button>
+          <button class="ibtn sm" title="Ẩn" @click="hidePush"><ic n="x" s="14"></ic></button>
+        </div>
+        <div v-else-if="(S.push === 'off' || S.push === 'ios') && !pushHide" class="push-banner">
           <ic n="bell" s="18"></ic>
           <span>{{S.push === 'ios' ? 'iPhone: thêm app vào Màn hình chính để nhận thông báo' : 'Bật thông báo để nhận tin nhắn và đơn mới trên điện thoại'}}</span>
           <button class="btn sm primary" @click="enablePush">{{S.push === 'ios' ? 'Xem cách' : 'Bật'}}</button>
@@ -1062,6 +1068,14 @@
   </div>
   <div class="card" id="thong-bao">
     <div class="card-h"><b>Thông báo trên điện thoại</b><small>Tin nhắn riêng, đơn mới, đơn được thanh toán, khi có người @nhắc tên bạn</small></div>
+    <div v-if="S.isAndroid && !S.installed" class="push-box p-off app-box">
+      <ic n="download" s="20"></ic>
+      <div class="grow"><b>Cài thành ứng dụng (khuyên dùng)</b>
+        <small>Để CTV Chat chạy như app riêng (không còn dòng “Chrome — Nhấn để sao chép URL”) và thông báo ổn định hơn.
+          <template v-if="!S.canInstall"> Mở trang này bằng <b>Chrome</b> → menu <b>⋮</b> → <b>Cài đặt ứng dụng</b> (chọn <b>Cài đặt</b>, không chọn “Tạo lối tắt”). Nếu đã có biểu tượng cũ, xoá biểu tượng cũ trước.</template></small>
+        <button v-if="S.canInstall" class="btn primary sm mt" @click="installApp"><ic n="download" s="15"></ic>Cài đặt ứng dụng</button>
+      </div>
+    </div>
     <div class="push-box" :class="'p-' + (S.push || 'wait')">
       <template v-if="S.push === 'on'">
         <ic n="check" s="20"></ic><div class="grow"><b>Máy này đang nhận thông báo</b><small>Kể cả khi đã đóng app. Muốn nhận trên máy khác thì mở app trên máy đó và bật ở đây.</small></div>
@@ -1099,6 +1113,7 @@
       <ul>
         <li><b>Đang mở app trên màn hình</b> thì tin mới hiện thành thanh nổi ngay trong app (không hiện lên thanh thông báo của máy để khỏi báo trùng). Thử: thoát ra màn hình chính rồi nhờ người khác nhắn / tag bạn.</li>
         <li><b>Android:</b> Cài đặt → Ứng dụng → Chrome → Thông báo → bật, mở mục <b>Trang web</b> → trang này → bật và chọn <b>Hiện trên màn hình (Pop up)</b>. Tắt chế độ Không làm phiền. Cài đặt → Pin → Chrome → <b>Không hạn chế</b>.</li>
+        <li><b>Đóng app là mất thông báo (Oppo, Realme, OnePlus, Xiaomi, Vivo…):</b> các máy này tự tắt hẳn Chrome khi vuốt đóng app. Vào Cài đặt → Ứng dụng → <b>Chrome</b> (và <b>CTV Chat</b> nếu đã cài) → <b>Sử dụng pin</b>: bật <b>Cho phép hoạt động nền</b> và <b>Cho phép tự khởi chạy</b> (Xiaomi: <b>Tự khởi động</b> + Tiết kiệm pin: <b>Không giới hạn</b>). Có thể <b>khoá</b> Chrome trong màn hình đa nhiệm (kéo thẻ xuống / bấm biểu tượng ổ khoá).</li>
         <li><b>iPhone:</b> phải mở app từ biểu tượng ở Màn hình chính. Cài đặt → Thông báo → <b>CTV Chat</b> → Cho phép thông báo, kiểu <b>Biểu ngữ</b>. Tắt Tập trung (Focus).</li>
         <li>Trong nhóm, chỉ người <b>được tag</b> mới nhận thông báo: gõ <b>@</b> rồi chọn tên trong danh sách, hoặc gõ <b>@tên</b> (ví dụ <b>@quang</b>). Tag đúng thì tên được <b>tô màu</b> trong tin. Tự tag chính mình thì không có thông báo.</li>
       </ul>
