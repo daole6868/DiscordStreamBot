@@ -11,6 +11,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -18,6 +19,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -29,6 +33,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -42,6 +48,7 @@ import java.lang.ref.WeakReference
  */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    private lateinit var bar: ProgressBar
     private var fileCb: ValueCallback<Array<Uri>>? = null
     private var pendingDownload: Array<String?>? = null
     @Volatile
@@ -72,7 +79,17 @@ class MainActivity : Activity() {
 
         web = WebView(this)
         web.setBackgroundColor(ContextCompat.getColor(this, R.color.bar))
-        setContentView(web)
+        // thanh tải mỏng ở mép trên (mạng 4G chậm vẫn thấy app đang tải)
+        bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        bar.max = 100
+        bar.isIndeterminate = false
+        bar.progressTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent))
+        bar.visibility = View.GONE
+        val root = FrameLayout(this)
+        root.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val h = (3 * resources.displayMetrics.density).toInt()
+        root.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h, Gravity.TOP))
+        setContentView(root)
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -126,7 +143,7 @@ class MainActivity : Activity() {
         if (current?.get() === this) current = null
         fileCb?.onReceiveValue(null)
         fileCb = null
-        (web.parent as? android.view.ViewGroup)?.removeView(web)
+        (web.parent as? ViewGroup)?.removeView(web)
         web.destroy()
         super.onDestroy()
     }
@@ -257,6 +274,11 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
 
     // ------------------------------------------------------------ chọn ảnh để gửi
     private inner class Chrome : WebChromeClient() {
+        override fun onProgressChanged(view: WebView, newProgress: Int) {
+            bar.progress = newProgress
+            bar.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
+        }
+
         override fun onShowFileChooser(view: WebView, cb: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
             fileCb?.onReceiveValue(null)
             fileCb = cb
