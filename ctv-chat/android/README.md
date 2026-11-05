@@ -9,7 +9,7 @@ App Android thật: giao diện CTV Chat chạy trong WebView riêng của app (
 4. **Tài khoản** → **Cho chạy nền** và **Tự khởi động**. Oppo / Realme / OnePlus: thêm Cài đặt → Ứng dụng → CTV Chat → Sử dụng pin → bật **Cho phép hoạt động nền** và **Cho phép tự khởi chạy**.
 
 ## Đóng gói
-- GitHub Actions (`.github/workflows/ctv-chat-android.yml`) tự đóng gói mỗi khi thư mục này thay đổi, rồi đăng file `CTV-Chat.apk` lên mục **Releases**.
+- GitHub Actions (`.github/workflows/ctv-chat-android.yml`) đóng gói rồi đăng file `CTV-Chat.apk` lên mục **Releases**. Chạy bằng tay: tab **Actions → CTV Chat — app Android → Run workflow**, chọn nhánh `claude/determined-franklin-77acow`. Khoảng 3 phút.
 - Link tải luôn trỏ tới bản mới nhất: `https://github.com/daole6868/DiscordStreamBot/releases/latest/download/CTV-Chat.apk`
 - Đóng gói trên máy (cần Android SDK, JDK 17, Gradle 8.7+): `gradle assembleRelease -PserverUrl=https://ctv.gachaz.shop`. Không có khoá ký thì app được ký bằng khoá debug.
 
