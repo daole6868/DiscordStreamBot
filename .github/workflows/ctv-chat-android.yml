@@ -1,0 +1,98 @@
+# Đóng gói app Android của CTV Chat (file APK) mỗi khi thư mục ctv-chat/android thay đổi,
+# rồi đăng lên mục Releases để tải về điện thoại:
+#   https://github.com/<chủ kho>/<tên kho>/releases/latest/download/CTV-Chat.apk
+name: CTV Chat — app Android
+
+on:
+  push:
+    branches: [claude/determined-franklin-77acow]
+    paths:
+      - 'ctv-chat/android/**'
+      - '.github/workflows/ctv-chat-android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ctv-chat-android
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Địa chỉ máy chủ app mở khi chạy lần đầu (đổi được ngay trong app). Có thể đặt biến kho CTV_SERVER_URL để thay.
+      SERVER_URL: ${{ vars.CTV_SERVER_URL || 'https://ctv.gachaz.shop' }}
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      # Khoá ký app (không để trong kho code). Thêm 2 secret của kho để mọi bản sau ký cùng một khoá và cài đè được lên bản cũ:
+      #   CTV_KEYSTORE_B64 (file .p12 mã hoá base64) và CTV_KEYSTORE_PASSWORD.
+      # Chưa có secret → tạo khoá tạm cho lần đóng gói này (bản sau phải gỡ app cũ rồi mới cài được).
+      - name: Khoá ký
+        env:
+          KS: ${{ secrets.CTV_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.CTV_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/ctv.p12"
+            echo "CTV_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "KEY_NOTE=Ký bằng khoá cố định — cài đè lên bản cũ được." >> "$GITHUB_ENV"
+          else
+            PASS=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/ctv.p12" -storetype pkcs12 -storepass "$PASS" -keypass "$PASS" \
+              -alias ctvchat -keyalg RSA -keysize 2048 -validity 10950 -dname "CN=CTV Chat, O=gachaz.shop, C=VN"
+            echo "::add-mask::$PASS"
+            echo "CTV_KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+            echo "KEY_NOTE=Ký bằng khoá tạm (kho chưa có secret CTV_KEYSTORE_B64) — nếu máy đã có bản cũ, gỡ app cũ rồi cài bản này." >> "$GITHUB_ENV"
+            echo "::warning::Chưa có secret CTV_KEYSTORE_B64 — APK được ký bằng khoá tạm"
+          fi
+          echo "CTV_KEYSTORE=$RUNNER_TEMP/ctv.p12" >> "$GITHUB_ENV"
+
+      - name: Đóng gói APK
+        working-directory: ctv-chat/android
+        run: gradle assembleRelease --no-daemon --stacktrace -PserverUrl="$SERVER_URL" -PversionCode="$VERSION_CODE"
+
+      - name: Đặt tên file
+        run: |
+          cp ctv-chat/android/app/build/outputs/apk/release/app-release.apk CTV-Chat.apk
+          ls -la CTV-Chat.apk
+          sha256sum CTV-Chat.apk
+
+      # bản chính nằm ở mục Releases — bản đính kèm lượt chạy chỉ giữ 7 ngày cho đỡ tốn dung lượng
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CTV-Chat-apk
+          path: CTV-Chat.apk
+          retention-days: 7
+
+      - name: Đăng lên Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ctv-chat-android-v${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: CTV Chat cho Android — bản ${{ github.run_number }}
+          make_latest: true
+          files: |
+            CTV-Chat.apk
+          body: |
+            **Cài trên điện thoại Android:** mở link dưới bằng điện thoại → tải `CTV-Chat.apk` → mở file → cho phép "Cài ứng dụng không rõ nguồn gốc" nếu máy hỏi → Cài đặt.
+
+            Link tải luôn trỏ tới bản mới nhất:
+            https://github.com/${{ github.repository }}/releases/latest/download/CTV-Chat.apk
+
+            Máy chủ mặc định: ${{ env.SERVER_URL }} (đổi được trong app nếu không kết nối được).
+
+            ${{ env.KEY_NOTE }}
