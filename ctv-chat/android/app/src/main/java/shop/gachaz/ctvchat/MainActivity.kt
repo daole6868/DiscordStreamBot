@@ -210,6 +210,11 @@ button{background:#e4e6eb;color:#1c1e21}small{opacity:.6;word-break:break-all}
                     toast("Địa chỉ không hợp lệ")
                     return
                 }
+                // app chỉ kết nối qua https (mã hoá) — http:// bị Android chặn
+                if (p.scheme != "https") {
+                    toast("Cần địa chỉ https://, ví dụ https://ctv.gachaz.shop")
+                    return
+                }
                 App.prefs(this).edit().putString("server", "${p.scheme}://${p.encodedAuthority}").apply()
                 web.loadUrl(App.serverUrl(this) + "/")
             }
