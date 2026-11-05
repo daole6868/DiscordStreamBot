@@ -71,10 +71,12 @@ jobs:
           ls -la CTV-Chat.apk
           sha256sum CTV-Chat.apk
 
+      # bản chính nằm ở mục Releases — bản đính kèm lượt chạy chỉ giữ 7 ngày cho đỡ tốn dung lượng
       - uses: actions/upload-artifact@v4
         with:
           name: CTV-Chat-apk
           path: CTV-Chat.apk
+          retention-days: 7
 
       - name: Đăng lên Releases
         uses: softprops/action-gh-release@v2
