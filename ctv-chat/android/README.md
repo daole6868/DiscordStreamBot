@@ -2,6 +2,12 @@
 
 App Android thật: giao diện CTV Chat chạy trong WebView riêng của app (không cần Chrome), thông báo qua Firebase Cloud Messaging. Thông báo vẫn đến khi đã vuốt tắt app.
 
+## Cài trên điện thoại
+1. Mở link `https://github.com/daole6868/DiscordStreamBot/releases/latest/download/CTV-Chat.apk` trên điện thoại Android.
+2. Mở file vừa tải → **Cài đặt**. Máy hỏi thì cho phép cài ứng dụng không rõ nguồn gốc. Play Protect cảnh báo thì bấm **Chi tiết → Vẫn cài đặt**.
+3. Mở **CTV Chat** → đăng nhập → **Cho phép** thông báo.
+4. **Tài khoản** → **Cho chạy nền** và **Tự khởi động**. Oppo / Realme / OnePlus: thêm Cài đặt → Ứng dụng → CTV Chat → Sử dụng pin → bật **Cho phép hoạt động nền** và **Cho phép tự khởi chạy**.
+
 ## Đóng gói
 - GitHub Actions (`.github/workflows/ctv-chat-android.yml`) tự đóng gói mỗi khi thư mục này thay đổi, rồi đăng file `CTV-Chat.apk` lên mục **Releases**.
 - Link tải luôn trỏ tới bản mới nhất: `https://github.com/daole6868/DiscordStreamBot/releases/latest/download/CTV-Chat.apk`
